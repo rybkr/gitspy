@@ -43,6 +43,254 @@ document.addEventListener('click', (e) => {
     if (!commitPopover.contains(e.target)) hideCommitPopover();
 });
 
+// Timeline state and helpers
+let timeline = {
+    minTs: null,
+    maxTs: null,
+    startTs: null,
+    endTs: null,
+    dragging: null,
+    scaleX: (t) => 0,
+    invScale: (x) => 0,
+    playing: false,
+    rafId: null,
+    tsList: []
+};
+
+// Shared UI updater for playback/keyboard
+let updateTimelineUI = null;
+
+function formatDate(ts) {
+    try {
+        return new Date(ts).toLocaleString();
+    } catch (e) {
+        return '' + ts;
+    }
+}
+
+function initTimelineFromNodes(nodes) {
+    const toTs = (n) => {
+        const d = n.date || n.committerDate || n.authorDate || null;
+        return d ? Date.parse(d) : null;
+    };
+    const ts = nodes.map(toTs).filter((v) => Number.isFinite(v));
+    if (!ts.length) return;
+    const min = Math.min(...ts);
+    const max = Math.max(...ts);
+    timeline.minTs = min;
+    timeline.maxTs = max;
+    timeline.startTs = min;
+    timeline.endTs = max;
+    timeline.tsList = Array.from(new Set(ts)).sort((a, b) => a - b);
+
+    const trackLeft = 60;
+    const trackRight = 16;
+    const trackY = 24; // css reference
+
+    function computeScale() {
+        const container = document.getElementById('timeline');
+        if (!container) return;
+        const width = container.clientWidth;
+        const x0 = trackLeft;
+        const x1 = width - trackRight;
+        const domain = max - min || 1;
+        timeline.scaleX = (t) => x0 + ((t - min) / domain) * (x1 - x0);
+        timeline.invScale = (x) => min + ((x - x0) / (x1 - x0)) * domain;
+        positionHandles();
+    }
+
+    function positionHandles() {
+        const startX = timeline.scaleX(timeline.startTs);
+        const endX = timeline.scaleX(timeline.endTs);
+        const startEl = document.getElementById('range-start');
+        const endEl = document.getElementById('range-end');
+        const fillEl = document.getElementById('range-fill');
+        if (!startEl || !endEl || !fillEl) return;
+        startEl.style.left = (startX - 7) + 'px';
+        endEl.style.left = (endX - 7) + 'px';
+        fillEl.style.left = startX + 'px';
+        fillEl.style.width = Math.max(0, endX - startX) + 'px';
+        const ls = document.getElementById('label-start');
+        const le = document.getElementById('label-end');
+        if (ls) ls.textContent = formatDate(timeline.startTs);
+        if (le) le.textContent = formatDate(timeline.endTs);
+        // Update ARIA values based on percentage along track
+        const pct = (ts) => {
+            const dom = (timeline.maxTs - timeline.minTs) || 1;
+            return Math.round(((ts - timeline.minTs) / dom) * 100);
+        };
+        startEl.setAttribute('aria-valuenow', String(pct(timeline.startTs)));
+        endEl.setAttribute('aria-valuenow', String(pct(timeline.endTs)));
+    }
+
+    computeScale();
+    updateTimelineUI = positionHandles;
+    window.addEventListener('resize', computeScale);
+
+    const startEl = document.getElementById('range-start');
+    const endEl = document.getElementById('range-end');
+    const container = document.getElementById('timeline');
+
+    const clampTs = (ts) => Math.min(Math.max(ts, timeline.minTs), timeline.maxTs);
+
+    let dragCandidate = null;
+    let dragStartX = 0;
+    let activeHandleEl = null;
+    const DRAG_THRESHOLD = 3; // px before engaging drag mode
+
+    function applyDragAtClientX(clientX) {
+        const rect = container.getBoundingClientRect();
+        const x = clientX - rect.left;
+        let ts = clampTs(timeline.invScale(x));
+        if (timeline.dragging === 'start') {
+            ts = Math.min(ts, timeline.endTs);
+            timeline.startTs = ts;
+        } else if (timeline.dragging === 'end') {
+            ts = Math.max(ts, timeline.startTs);
+            timeline.endTs = ts;
+        }
+        positionHandles();
+        if (typeof applyTimeFilter === 'function') applyTimeFilter();
+    }
+
+    function onMove(e) {
+        if (!dragCandidate && !timeline.dragging) return;
+        e.preventDefault();
+        if (!timeline.dragging && dragCandidate) {
+            const dx = Math.abs(e.clientX - dragStartX);
+            if (dx > DRAG_THRESHOLD) {
+                timeline.dragging = dragCandidate; // engage drag
+                document.body.classList.add('dragging-timeline');
+            }
+        }
+        if (timeline.dragging) {
+            applyDragAtClientX(e.clientX);
+        }
+    }
+
+    function onUp(e) {
+        const wasDragging = !!timeline.dragging;
+        dragCandidate = null;
+        timeline.dragging = null;
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        document.body.classList.remove('dragging-timeline');
+        if (activeHandleEl) {
+            // Ensure handle remains focused for arrow key usage
+            activeHandleEl.focus();
+        }
+        if (!wasDragging && e && typeof e.clientX === 'number') {
+            // Treat as a simple click: move handle to click position
+            applyDragAtClientX(e.clientX);
+        }
+    }
+
+    function onDownFactory(which, el) {
+        return (e) => {
+            e.preventDefault();
+            el.focus();
+            activeHandleEl = el;
+            dragCandidate = which;
+            dragStartX = e.clientX;
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+        };
+    }
+
+    if (startEl) startEl.addEventListener('mousedown', onDownFactory('start', startEl));
+    if (endEl) endEl.addEventListener('mousedown', onDownFactory('end', endEl));
+    if (startEl) startEl.addEventListener('click', () => startEl.focus());
+    if (endEl) endEl.addEventListener('click', () => endEl.focus());
+
+    // Keyboard controls (1-minute step)
+    function handleKey(e, which) {
+        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+        e.preventDefault();
+        const dir = e.key === 'ArrowLeft' ? -1 : 1;
+        const list = timeline.tsList || [];
+        if (!list.length) return;
+
+        const findIndex = (ts) => {
+            let i = list.findIndex((v) => v >= ts);
+            if (i === -1) return list.length - 1;
+            return i;
+        };
+
+        if (which === 'start') {
+            const cur = timeline.startTs ?? timeline.minTs;
+            let i = findIndex(cur);
+            if (list[i] < cur && dir > 0) i = Math.min(i + 1, list.length - 1);
+            if (list[i] > cur && dir < 0) i = Math.max(i - 1, 0);
+            i = dir > 0 ? Math.min(i + (list[i] === cur ? 1 : 0), list.length - 1) : Math.max(i - 1, 0);
+            // Do not go past end index
+            const endIdx = findIndex(timeline.endTs ?? timeline.maxTs);
+            i = Math.min(i, endIdx);
+            timeline.startTs = list[i];
+        } else {
+            const cur = timeline.endTs ?? timeline.maxTs;
+            let i = findIndex(cur);
+            if (list[i] < cur && dir > 0) i = Math.min(i + 1, list.length - 1);
+            if (list[i] > cur && dir < 0) i = Math.max(i - 1, 0);
+            i = dir > 0 ? Math.min(i + (list[i] === cur ? 1 : 0), list.length - 1) : Math.max(i - 1, 0);
+            // Do not go before start index
+            const startIdx = findIndex(timeline.startTs ?? timeline.minTs);
+            i = Math.max(i, startIdx);
+            timeline.endTs = list[i];
+        }
+        positionHandles();
+        if (typeof applyTimeFilter === 'function') applyTimeFilter();
+    }
+    if (startEl) startEl.addEventListener('keydown', (e) => handleKey(e, 'start'));
+    if (endEl) endEl.addEventListener('keydown', (e) => handleKey(e, 'end'));
+}
+
+// Filtering
+let applyTimeFilter = null;
+
+// Play/pause handling
+function setupTimelinePlayback() {
+    const btn = document.getElementById('timeline-play');
+    if (!btn) return;
+    const DURATION_MS = 12000; // faster sweep (~1.67x)
+    function step(ts) {
+        if (!timeline.playing) return;
+        if (step.prevTs == null) step.prevTs = ts;
+        const dt = ts - step.prevTs;
+        step.prevTs = ts;
+        const total = (timeline.maxTs - timeline.minTs) || 1;
+        const delta = (dt / DURATION_MS) * total;
+        let nextEnd = (timeline.endTs ?? timeline.minTs) + delta;
+        if (nextEnd > timeline.maxTs) {
+            nextEnd = timeline.minTs + (nextEnd - timeline.maxTs);
+        }
+        // Ensure end >= start
+        if (nextEnd < timeline.startTs) {
+            timeline.startTs = timeline.minTs;
+        }
+        timeline.endTs = nextEnd;
+        if (typeof updateTimelineUI === 'function') updateTimelineUI();
+        if (typeof applyTimeFilter === 'function') applyTimeFilter();
+        timeline.rafId = requestAnimationFrame(step);
+    }
+    btn.addEventListener('click', () => {
+        timeline.playing = !timeline.playing;
+        btn.textContent = timeline.playing ? '⏸' : '▶';
+        if (timeline.playing) {
+            btn.classList.add('playing');
+        } else {
+            btn.classList.remove('playing');
+        }
+        step.prevTs = null;
+        if (timeline.playing) {
+            if (timeline.endTs == null) timeline.endTs = timeline.minTs;
+            timeline.rafId = requestAnimationFrame(step);
+        } else if (timeline.rafId) {
+            cancelAnimationFrame(timeline.rafId);
+            timeline.rafId = null;
+        }
+    });
+}
+
 fetch('/api/info')
     .then(r => r.json())
     .then(info => {
@@ -153,6 +401,32 @@ fetch('/api/graph')
 
             node.attr('transform', d => 'translate(' + d.x + ',' + d.y + ')');
         });
+
+        // Initialize timeline and filtering
+        initTimelineFromNodes(graph.nodes);
+        setupTimelinePlayback();
+        const nodeHasTs = (d) => {
+            const v = d.date || d.committerDate || d.authorDate;
+            const t = v ? Date.parse(v) : NaN;
+            return Number.isFinite(t) ? t : null;
+        };
+        applyTimeFilter = function () {
+            const start = timeline.startTs ?? -Infinity;
+            const end = timeline.endTs ?? Infinity;
+            // Node visibility
+            node.style('display', (d) => {
+                const ts = nodeHasTs(d);
+                return ts == null ? 'none' : (ts >= start && ts <= end ? null : 'none');
+            });
+            // Link visibility (show only if both ends visible)
+            link.style('display', (d) => {
+                const s = nodeHasTs(d.source);
+                const t = nodeHasTs(d.target);
+                if (s == null || t == null) return 'none';
+                return (s >= start && s <= end && t >= start && t <= end) ? null : 'none';
+            });
+        };
+        applyTimeFilter();
     })
     .catch(err => {
         console.error('Error:', err);

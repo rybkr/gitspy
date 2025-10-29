@@ -11,6 +11,13 @@ body {
     overflow: hidden;
 }
 
+/* Disable text selection while timeline is being dragged */
+body.dragging-timeline {
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: ew-resize;
+}
+
 :root {
     --sidebar-width: 320px;
 }
@@ -151,6 +158,12 @@ body {
     display: block;
 }
 
+/* Avoid accidental selection of SVG labels in general */
+#graph text {
+    user-select: none;
+    -webkit-user-select: none;
+}
+
 .commit-popover {
     position: fixed;
     top: 0;
@@ -181,4 +194,101 @@ body {
 .commit-popover .message {
     margin-top: 8px;
     line-height: 1.4;
+}
+
+/* Timeline overlay */
+#timeline {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 56px;
+    padding: 10px 16px;
+    background: linear-gradient(to top, rgba(13, 17, 23, 0.95), rgba(13, 17, 23, 0.6) 60%, rgba(13, 17, 23, 0.0));
+    border-top: 1px solid #30363d;
+}
+
+#timeline .track {
+    position: absolute;
+    left: 60px;
+    right: 16px;
+    top: 24px;
+    height: 6px;
+    background: rgba(33, 38, 45, 0.65);
+    border-radius: 999px;
+}
+
+#range-fill {
+    position: absolute;
+    top: 24px;
+    height: 6px;
+    background: rgba(35, 134, 54, 0.75);
+    border-radius: 999px;
+}
+
+#timeline .handle {
+    position: absolute;
+    top: 18px;
+    width: 14px;
+    height: 18px;
+    background: #30363d;
+    border: 1px solid #484f58;
+    border-radius: 4px;
+    cursor: ew-resize;
+}
+
+#timeline .handle:hover {
+    background: #3d444d;
+}
+
+#timeline-labels {
+    position: absolute;
+    left: 60px;
+    right: 16px;
+    bottom: 6px;
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #8b949e;
+    pointer-events: none;
+}
+
+#timeline-play {
+    position: absolute;
+    left: 16px;
+    top: 12px;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(31, 111, 235, 0.8);
+    border-radius: 999px;
+    background: linear-gradient(180deg, rgba(31, 111, 235, 0.9), rgba(17, 88, 199, 0.8));
+    color: rgba(13, 17, 23, 0.95);
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(31, 111, 235, 0.3);
+    transition: transform 0.08s ease, box-shadow 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+}
+
+#timeline-play:hover {
+    background: linear-gradient(180deg, rgba(56, 139, 253, 0.95), rgba(31, 111, 235, 0.9));
+    border-color: rgba(56, 139, 253, 0.85);
+    box-shadow: 0 4px 12px rgba(56, 139, 253, 0.3);
+}
+
+#timeline-play:active {
+    transform: scale(0.97);
+}
+
+#timeline-play:focus-visible {
+    outline: 2px solid #58a6ff;
+    outline-offset: 2px;
+}
+
+#timeline-play.playing {
+    border-color: rgba(46, 160, 67, 0.85);
+    background: linear-gradient(180deg, rgba(46, 160, 67, 0.9), rgba(35, 134, 54, 0.85));
+    color: rgba(13, 17, 23, 0.95);
+    box-shadow: 0 4px 12px rgba(46, 160, 67, 0.3);
 }

@@ -30,6 +30,19 @@
             <div id="canvas">
                 <svg id="graph"></svg>
             </div>
+            <div id="timeline" aria-label="Time range filter">
+                <button id="timeline-play" aria-label="Play timeline" title="Play/Pause">▶</button>
+                <div class="track"></div>
+                <div id="range-fill"></div>
+                <div id="range-start" class="handle" role="slider" aria-valuemin="0" aria-valuemax="100"
+                    aria-valuenow="0" aria-label="Start" tabindex="0"></div>
+                <div id="range-end" class="handle" role="slider" aria-valuemin="0" aria-valuemax="100"
+                    aria-valuenow="100" aria-label="End" tabindex="0"></div>
+                <div id="timeline-labels">
+                    <span id="label-start"></span>
+                    <span id="label-end"></span>
+                </div>
+            </div>
         </div>
     </div>
     <script src="app.js"></script>
