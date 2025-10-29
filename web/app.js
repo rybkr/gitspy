@@ -304,10 +304,100 @@ fetch('/api/info')
 fetch('/api/config')
     .then(r => r.json())
     .then(config => {
+        const container = document.getElementById('config-list');
+        if (!container) return;
+        const esc = (s) => String(s).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        function parseIni(str) {
+            const result = {};
+            let section = null;
+            const lines = String(str).split(/\r?\n/);
+            for (let raw of lines) {
+                const line = raw.trim();
+                if (!line || line.startsWith('#') || line.startsWith(';')) continue;
+                const sec = line.match(/^\[(.+?)\]$/);
+                if (sec) {
+                    section = sec[1];
+                    if (!result[section]) result[section] = {};
+                    continue;
+                }
+                const kv = line.match(/^([^=\s]+)\s*=\s*(.*)$/) || line.match(/^([^\s]+)\s+(.*)$/);
+                if (kv) {
+                    const key = kv[1];
+                    const val = kv[2];
+                    const target = section ? (result[section] || (result[section] = {})) : (result._ || (result._ = {}));
+                    if (key in target) {
+                        const prev = target[key];
+                        if (Array.isArray(prev)) target[key] = prev.concat([val]);
+                        else target[key] = [prev, val];
+                    } else {
+                        target[key] = val;
+                    }
+                }
+            }
+            return result;
+        }
+        function renderKV(key, value) {
+            return '<div class="kv-item"><div class="kv-key">' + esc(key) + '</div><div class="kv-value">' + esc(value) + '</div></div>';
+        }
+        function isPlainObject(v) {
+            return v && typeof v === 'object' && !Array.isArray(v);
+        }
+        let html = '';
+        // Normalize config: support plain string or object with a single raw string field
+        if (typeof config === 'string') {
+            // Try to parse INI-like content into grouped object
+            config = parseIni(config);
+        } else if (config && typeof config === 'object') {
+            const keys = Object.keys(config);
+            if (keys.length === 1 && typeof config[keys[0]] === 'string') {
+                const v = config[keys[0]];
+                // Heuristic: looks like INI if it contains brackets or newlines
+                if (/\n|\r|\[.+\]/.test(v)) {
+                    config = parseIni(v);
+                }
+            }
+        }
+        if (isPlainObject(config)) {
+            const topKeys = Object.keys(config).sort();
+            for (const k of topKeys) {
+                const v = config[k];
+                if (isPlainObject(v)) {
+                    html += '<div class="kv-group">';
+                    html += '<div class="kv-group-title">[' + esc(k) + ']</div>';
+                    const innerKeys = Object.keys(v).sort();
+                    for (const ik of innerKeys) {
+                        const val = v[ik];
+                        if (Array.isArray(val)) {
+                            for (const item of val) html += renderKV(ik, item);
+                        } else {
+                            html += renderKV(ik, val);
+                        }
+                    }
+                    html += '</div>';
+                } else if (Array.isArray(v)) {
+                    html += '<div class="kv-group">';
+                    html += '<div class="kv-group-title">[' + esc(k) + ']</div>';
+                    for (const item of v) {
+                        if (isPlainObject(item)) {
+                            const subKeys = Object.keys(item).sort();
+                            for (const sk of subKeys) html += renderKV(sk, item[sk]);
+                        } else {
+                            html += renderKV(k, item);
+                        }
+                    }
+                    html += '</div>';
+                } else {
+                    html += renderKV(k, v);
+                }
+            }
+        } else {
+            html = '<div class="kv-item"><div class="kv-key">config</div><div class="kv-value">' + esc(config) + '</div></div>';
+        }
+        container.innerHTML = html;
     })
     .catch(err => {
-        console.error('Error:', err);
-        document.getElementById('config').textContent = 'Error loading config';
+        const container = document.getElementById('config-list');
+        if (container) container.innerHTML = '<div class="kv-item"><div class="kv-key">Error</div><div class="kv-value">Failed to load config</div></div>';
     });
 
 fetch('/api/graph')
