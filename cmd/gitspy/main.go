@@ -23,10 +23,11 @@ func main() {
 		}
 	}
 
-    repo, err := git.NewRepository(*repoPath)
+    repo, err := git.NewRepository(filepath.Join(*repoPath, ".git"))
     if err != nil {
         log.Fatal(err)
     }
+
     serv := server.NewServer(repo, *port)
 
     fmt.Printf("GitSpy running at http://localhost:%s\n", *port)
