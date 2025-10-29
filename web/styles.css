@@ -53,6 +53,7 @@ body.dragging-timeline {
 #sidebar-header {
     padding: 20px;
     border-bottom: 1px solid #30363d;
+    position: relative;
 }
 
 #sidebar-header h1 {
@@ -77,18 +78,25 @@ body.dragging-timeline {
 }
 
 #toggle-sidebar {
-    margin-left: auto;
-    background: transparent;
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(22, 27, 34, 0.6);
     color: #8b949e;
     border: 1px solid #30363d;
-    border-radius: 6px;
-    padding: 4px 8px;
+    border-radius: 999px;
     cursor: pointer;
 }
 
 #toggle-sidebar:hover {
     color: #c9d1d9;
     border-color: #3d444d;
+    background: rgba(22, 27, 34, 0.8);
 }
 
 #sidebar-resizer {
