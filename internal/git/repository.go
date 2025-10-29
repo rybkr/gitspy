@@ -7,14 +7,14 @@ import (
 )
 
 type Repository struct {
-	Path        string
-	GitDir      string
-	Description string
+    Name        string `json:"name"`
+    Path        string `json:"path"`
+    GitDir      string
+    Description string `json:"description"`
 }
 
 func NewRepository(gitDir string) (*Repository, error) {
 	repo := &Repository{
-		Path:   filepath.Dir(gitDir),
 		GitDir: gitDir,
 	}
 
@@ -26,6 +26,10 @@ func NewRepository(gitDir string) (*Repository, error) {
 }
 
 func (r *Repository) load() error {
+    relPath := filepath.Dir(r.GitDir)
+    r.Path, _ = filepath.Abs(relPath)
+    r.Name = filepath.Base(r.Path)
+
 	descPath := filepath.Join(r.GitDir, "description")
 	descData, err := os.ReadFile(descPath)
 	if err == nil {

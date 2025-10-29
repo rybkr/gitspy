@@ -22,10 +22,16 @@ func (s *Server) Start() error {
 	fs := http.FileServer(http.Dir("./web"))
 	http.Handle("/", fs)
 
+    http.HandleFunc("/api/info", s.handleInfo)
 	http.HandleFunc("/api/config", s.handleConfig)
 	http.HandleFunc("/api/graph", s.handleGraph)
 
 	return http.ListenAndServe(":"+s.port, nil)
+}
+
+func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.repo)
 }
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {

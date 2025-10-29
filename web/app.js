@@ -1,7 +1,17 @@
+fetch('/api/info')
+    .then(r => r.json())
+    .then(info => {
+        document.getElementById('repo-name').textContent = info.name;
+        document.getElementById('repo-path').textContent = info.path;
+    })
+    .catch(err => {
+        console.error('Error:', err);
+    });
+
 fetch('/api/config')
     .then(r => r.json())
     .then(config => {
-        document.getElementById('config').textContent = JSON.stringify(config, null, 2);
+        //document.getElementById('config').textContent = JSON.stringify(config, null, 2);
     })
     .catch(err => {
         console.error('Error:', err);
