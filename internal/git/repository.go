@@ -1,12 +1,15 @@
 package git
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 )
 
 type Repository struct {
-	Path   string
-	GitDir string
+	Path        string
+	GitDir      string
+	Description string
 }
 
 func NewRepository(gitDir string) (*Repository, error) {
@@ -23,5 +26,12 @@ func NewRepository(gitDir string) (*Repository, error) {
 }
 
 func (r *Repository) load() error {
+	descPath := filepath.Join(r.GitDir, "description")
+	descData, err := os.ReadFile(descPath)
+	if err == nil {
+		desc := strings.TrimSpace(string(descData))
+		r.Description = desc
+	}
+
 	return nil
 }
