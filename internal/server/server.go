@@ -25,6 +25,7 @@ func (s *Server) Start() error {
     http.HandleFunc("/api/info", s.handleInfo)
 	http.HandleFunc("/api/config", s.handleConfig)
 	http.HandleFunc("/api/graph", s.handleGraph)
+    http.HandleFunc("/api/status", s.handleStatus)
 
 	return http.ListenAndServe(":"+s.port, nil)
 }
@@ -54,4 +55,15 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(graph)
+}
+
+func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+	status, err := s.repo.GetStatus()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(status)
 }

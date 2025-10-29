@@ -432,6 +432,59 @@ fetch('/api/graph')
         console.error('Error:', err);
     });
 
+fetch('/api/status')
+    .then(r => r.json())
+    .then(status => {
+        const section = document.getElementById('status-section');
+        if (!section) return;
+        const stagedList = section.querySelector('.file-list.staged');
+        const dirtyList = section.querySelector('.file-list.dirty');
+
+        function render(listEl, entries, kind) {
+            if (!listEl) return;
+            const makeItem = (name, variant, badgeText) => (
+                '<li class="file-item ' + variant + '"><span class="dot" aria-hidden="true"></span>' +
+                '<span class="name">' + name.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>' +
+                '<span class="badge">' + badgeText + '</span></li>'
+            );
+            const html = (entries && entries.length)
+                ? entries.map((n) => {
+                    if (kind === 'staged') return makeItem(String(n), 'added', 'A');
+                    // For dirty we need to infer type groups; if backend already groups, we will call render per group below
+                    return makeItem(String(n), 'modified', 'M');
+                }).join('')
+                : '<li class="file-item untracked"><span class="dot"></span><span class="name">No files</span><span class="badge">–</span></li>';
+            listEl.innerHTML = html;
+        }
+
+        // If backend provides grouped fields, use them explicitly
+        if (Array.isArray(status.staged)) {
+            render(stagedList, status.staged, 'staged');
+        }
+        if (dirtyList) {
+            let html = '';
+            if (Array.isArray(status.modified) && status.modified.length) {
+                html += status.modified.map((n) => (
+                    '<li class="file-item modified"><span class="dot"></span><span class="name">' + String(n).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span><span class="badge">M</span></li>'
+                )).join('');
+            }
+            if (Array.isArray(status.deleted) && status.deleted.length) {
+                html += status.deleted.map((n) => (
+                    '<li class="file-item deleted"><span class="dot"></span><span class="name">' + String(n).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span><span class="badge">D</span></li>'
+                )).join('');
+            }
+            if (Array.isArray(status.untracked) && status.untracked.length) {
+                html += status.untracked.map((n) => (
+                    '<li class="file-item untracked"><span class="dot"></span><span class="name">' + String(n).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span><span class="badge">?</span></li>'
+                )).join('');
+            }
+            if (!html) {
+                html = '<li class="file-item untracked"><span class="dot"></span><span class="name">Clean working tree</span><span class="badge">✓</span></li>';
+            }
+            dirtyList.innerHTML = html;
+        }
+    });
+
 
 (function setupSidebarControls() {
     const root = document.documentElement;
