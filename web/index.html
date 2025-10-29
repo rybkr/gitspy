@@ -4,24 +4,23 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Git Spy</title>
-    <style>
-        body {
-            font-family: monospace;
-            padding: 20px;
-            background: #1e1e1e;
-            color: #d4d4d4;
-        }
-        pre {
-            background: #2d2d2d;
-            padding: 20px;
-            border-radius: 5px;
-            overflow: auto;
-        }
-    </style>
+    <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <h1>Git Config</h1>
-    <pre id="config">Loading...</pre>
-    <script src="app.js"></script>
+    <div id="app">
+    <div id="sidebar">
+        <div id="sidebar-header">
+            <h1>Repository Name</h1>
+            <div class="repo-path">/path/to/repository</div>
+        </div>
+        <div class="sidebar-content">
+            <div class="section" id="config-section">
+                <div class="section-title expandable">
+                    
+                </div>
+            </div>
+        </div>
+    </div>
+    </div>
 </body>
 </html>
