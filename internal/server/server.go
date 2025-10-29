@@ -7,11 +7,11 @@ import (
 )
 
 type Server struct {
-    repo *git.Repo
+    repo *git.Repository
     port string
 }
 
-func NewServer(repo *git.Repo, port string) *Server {
+func NewServer(repo *git.Repository, port string) *Server {
     return &Server{
         repo: repo,
         port: port,

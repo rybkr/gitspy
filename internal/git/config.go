@@ -10,7 +10,7 @@ type GitConfig struct {
 	Core CoreConfig `json:"core"`
 }
 
-func (r *Repo) GetConfig() (*GitConfig, error) {
+func (r *Repository) GetConfig() (*GitConfig, error) {
 	config := &GitConfig{}
 
 	configPath := filepath.Join(r.Path, ".git", "config")
@@ -57,7 +57,7 @@ func parseGitConfig(configPath string, config *GitConfig) error {
 }
 
 type CoreConfig struct {
-	RepositoryFormatVersion string `json:"repositoryformatversion"`
+	RepositorysitoryFormatVersion string `json:"repositoryformatversion"`
 	FileMode                string `json:"filemode"`
 	Bare                    string `json:"bare"`
 	LogAllRefUpdates        string `json:"logallrefupdates"`
@@ -66,7 +66,7 @@ type CoreConfig struct {
 func parseCoreConfigParam(key, value string, core *CoreConfig) {
 	switch key {
 	case "repositoryformatversion":
-		core.RepositoryFormatVersion = value
+		core.RepositorysitoryFormatVersion = value
 	case "filemode":
 		core.FileMode = value
 	case "bare":
