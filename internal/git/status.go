@@ -60,6 +60,7 @@ func (r *Repository) GetStatus() (*Status, error) {
 
 	headTree, err := r.getHEADTree()
 	if err != nil {
+
 		for _, entry := range indexEntries {
 			status.Staged = append(status.Staged, FileStatus{
 				Path:   entry.Path,
@@ -121,7 +122,7 @@ func readIndexEntry(file *os.File, version uint32) (IndexEntry, error) {
 
 	// Get current position for debugging
 	pos, _ := file.Seek(0, io.SeekCurrent)
-	
+
 	// Read fixed-size fields (62 bytes)
 	fixedData := make([]byte, 62)
 	n, err := io.ReadFull(file, fixedData)
@@ -146,8 +147,6 @@ func readIndexEntry(file *os.File, version uint32) (IndexEntry, error) {
 
 	// Get path length from flags (convert to int immediately)
 	pathLen := int(entry.Flags & 0xFFF)
-	
-	fmt.Printf("Entry at pos %d: flags=0x%04x, pathLen=%d\n", pos, entry.Flags, pathLen)
 
 	// Sanity check
 	if pathLen > 4096 {
@@ -176,8 +175,6 @@ func readIndexEntry(file *os.File, version uint32) (IndexEntry, error) {
 		paddingNeeded = 8 - remainder
 	}
 
-	fmt.Printf("Path: %s, totalRead=%d, padding=%d\n", entry.Path, totalRead, paddingNeeded)
-
 	if paddingNeeded > 0 {
 		padBuf := make([]byte, paddingNeeded)
 		if _, err := io.ReadFull(file, padBuf); err != nil {
@@ -200,6 +197,12 @@ func (r *Repository) getHEADTree() (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	nullIdx := bytes.IndexByte(content, 0)
+	if nullIdx == -1 {
+		return nil, fmt.Errorf("invalid commit object format")
+	}
+	content = content[nullIdx+1:]
 
 	lines := strings.Split(string(content), "\n")
 	var treeHash string
@@ -251,8 +254,8 @@ func (r *Repository) readTreeRecursive(treeHash, prefix string) (map[string]stri
 		}
 		hash := fmt.Sprintf("%x", content[:20])
 		content = content[20:]
-
 		fullPath := filepath.Join(prefix, name)
+		fullPath = filepath.ToSlash(fullPath)
 
 		if mode == "40000" {
 			subTree, err := r.readTreeRecursive(hash, fullPath)

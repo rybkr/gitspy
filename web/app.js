@@ -440,11 +440,21 @@ fetch('/api/status')
         const stagedList = section.querySelector('.file-list.staged');
         const dirtyList = section.querySelector('.file-list.dirty');
 
+        function esc(text) {
+            return String(text).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        function entryPath(entry) {
+            if (typeof entry === 'string') return entry;
+            if (!entry || typeof entry !== 'object') return '';
+            return entry.path || entry.file || entry.name || entry.newPath || entry.oldPath || '';
+        }
+
         function render(listEl, entries, kind) {
             if (!listEl) return;
             const makeItem = (name, variant, badgeText) => (
                 '<li class="file-item ' + variant + '"><span class="dot" aria-hidden="true"></span>' +
-                '<span class="name">' + name.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>' +
+                '<span class="name">' + esc(name) + '</span>' +
                 '<span class="badge">' + badgeText + '</span></li>'
             );
             const html = (entries && entries.length)
@@ -457,26 +467,75 @@ fetch('/api/status')
             listEl.innerHTML = html;
         }
 
-        // If backend provides grouped fields, use them explicitly
-        if (Array.isArray(status.staged)) {
-            render(stagedList, status.staged, 'staged');
+        // Normalize staged entries and filter to only modified/moved/deleted
+        function normalizeStaged(raw) {
+            if (!raw) return [];
+            // Accept array of strings or array of objects
+            return raw.map((item) => {
+                if (typeof item === 'string') {
+                    return { path: item, status: null };
+                }
+                if (item && typeof item === 'object') {
+                    const path = item.path || item.file || item.name || item.newPath || item.oldPath || '';
+                    // Common status code fields
+                    const code = item.status || item.code || item.x || item.y || item.xy || null;
+                    return { path, status: code };
+                }
+                return null;
+            }).filter(Boolean);
+        }
+
+        function isDirtyStaged(statusCode) {
+            if (!statusCode) return true; // unknown -> assume modified so it appears
+            const s = String(statusCode).toUpperCase();
+            // Accept single-letter codes or two-letter porcelain XY pairs
+            // Treat A (added), M (modified), D (deleted), R (renamed), C (copied) as meaningful staged changes
+            const has = (ch) => s.includes(ch);
+            return has('A') || has('M') || has('D') || has('R') || has('C');
+        }
+
+        // Render staged list (always overwrite placeholders)
+        if (stagedList) {
+            const norm = Array.isArray(status.staged)
+                ? normalizeStaged(status.staged).filter((e) => isDirtyStaged(e.status))
+                : [];
+            let html = '';
+            if (norm.length) {
+                html = norm.map((e) => {
+                    const code = ((e.status || 'M')).toString().toUpperCase();
+                    let variant = 'modified';
+                    let badge = 'M';
+                    if (code.includes('A')) { variant = 'added'; badge = 'A'; }
+                    else if (code.includes('M')) { variant = 'modified'; badge = 'M'; }
+                    else if (code.includes('D')) { variant = 'deleted'; badge = 'D'; }
+                    else if (code.includes('R')) { variant = 'modified'; badge = 'R'; }
+                    else if (code.includes('C')) { variant = 'modified'; badge = 'C'; }
+                    return '<li class="file-item ' + variant + '"><span class="dot"></span><span class="name">' + esc(e.path) + '</span><span class="badge">' + badge + '</span></li>';
+                }).join('');
+            } else {
+                html = '<li class="file-item untracked"><span class="dot"></span><span class="name">No staged changes</span><span class="badge">✓</span></li>';
+            }
+            stagedList.innerHTML = html;
         }
         if (dirtyList) {
             let html = '';
             if (Array.isArray(status.modified) && status.modified.length) {
-                html += status.modified.map((n) => (
-                    '<li class="file-item modified"><span class="dot"></span><span class="name">' + String(n).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span><span class="badge">M</span></li>'
-                )).join('');
+                html += status.modified.map((n) => {
+                    const name = entryPath(n);
+                    return '<li class="file-item modified"><span class="dot"></span><span class="name">' + esc(name) + '</span><span class="badge">M</span></li>';
+                }).join('');
             }
             if (Array.isArray(status.deleted) && status.deleted.length) {
-                html += status.deleted.map((n) => (
-                    '<li class="file-item deleted"><span class="dot"></span><span class="name">' + String(n).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span><span class="badge">D</span></li>'
-                )).join('');
+                html += status.deleted.map((n) => {
+                    const name = entryPath(n);
+                    return '<li class="file-item deleted"><span class="dot"></span><span class="name">' + esc(name) + '</span><span class="badge">D</span></li>';
+                }).join('');
             }
             if (Array.isArray(status.untracked) && status.untracked.length) {
-                html += status.untracked.map((n) => (
-                    '<li class="file-item untracked"><span class="dot"></span><span class="name">' + String(n).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span><span class="badge">?</span></li>'
-                )).join('');
+                html += status.untracked.map((n) => {
+                    const name = entryPath(n);
+                    return '<li class="file-item untracked"><span class="dot"></span><span class="name">' + esc(name) + '</span><span class="badge">?</span></li>';
+                }).join('');
             }
             if (!html) {
                 html = '<li class="file-item untracked"><span class="dot"></span><span class="name">Clean working tree</span><span class="badge">✓</span></li>';
