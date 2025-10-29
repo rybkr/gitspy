@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,27 +8,31 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
     <link rel="stylesheet" href="styles.css">
 </head>
+
 <body>
     <div id="app">
-    <div id="sidebar">
-        <div id="sidebar-header">
-            <h1 id="repo-name">Repository Name</h1>
-            <div id="repo-path">/path/to/repository</div>
-        </div>
-        <div class="sidebar-content">
-            <div class="section" id="config-section">
-                <div class="section-title expandable">
-                    
+        <div id="sidebar">
+            <div id="sidebar-header">
+                <h1 id="repo-name">Repository Name</h1>
+                <button id="toggle-sidebar" aria-label="Toggle sidebar" title="Toggle sidebar">⟨</button>
+                <div id="repo-path">/path/to/repository</div>
+            </div>
+            <div class="sidebar-content">
+                <div class="section" id="config-section">
+                    <div class="section-title expandable">
+
+                    </div>
                 </div>
             </div>
         </div>
-    </div>
-    <div id="main">
-        <div id="canvas">
-            <svg id="graph"></svg>
+        <div id="sidebar-resizer" aria-hidden="true"></div>
+        <div id="main">
+            <div id="canvas">
+                <svg id="graph"></svg>
+            </div>
         </div>
-    </div>
     </div>
     <script src="app.js"></script>
 </body>
+
 </html>
