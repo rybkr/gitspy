@@ -326,25 +326,67 @@ fetch('/api/graph')
         });
         svg.call(zoom);
 
-        const simulation = d3.forceSimulation(graph.nodes)
-            .force('link', d3.forceLink(graph.links).id(d => d.id).distance(100))
-            .force('charge', d3.forceManyBody().strength(-300))
+        // Build branch nodes and links from commit node branch arrays
+        const originalNodes = graph.nodes || [];
+        const originalLinks = graph.links || [];
+        const idToNode = new Map(originalNodes.map(n => [n.id, n]));
+        const branchNodes = [];
+        const branchLinks = [];
+        const seenBranchIds = new Set();
+        for (const node of originalNodes) {
+            if (Array.isArray(node.branches)) {
+                for (const name of node.branches) {
+                    const id = 'branch:' + name;
+                    if (!seenBranchIds.has(id)) {
+                        seenBranchIds.add(id);
+                        // Initialize near the commit node if possible for faster stabilization
+                        const bx = typeof node.x === 'number' ? node.x + 12 : undefined;
+                        const by = typeof node.y === 'number' ? node.y - 12 : undefined;
+                        branchNodes.push({ id, isBranch: true, name, x: bx, y: by });
+                    }
+                    branchLinks.push({ source: id, target: node.id, isBranchLink: true });
+                }
+            }
+        }
+        const allNodes = originalNodes.concat(branchNodes);
+        const allLinks = originalLinks.concat(branchLinks);
+
+        const simulation = d3.forceSimulation(allNodes)
+            .force('link', d3.forceLink(allLinks).id(d => d.id).distance(d => d.isBranchLink ? 150 : 100))
+            .force('charge', d3.forceManyBody().strength(d => d.isBranch ? -80 : -300))
             .force('center', d3.forceCenter(width / 2, height / 2))
             .force('collision', d3.forceCollide().radius(30));
 
+        // Define arrow marker for branch links
+        const defs = svg.append('defs');
+        defs.append('marker')
+            .attr('id', 'branch-arrow')
+            .attr('viewBox', '0 -5 10 10')
+            .attr('refX', 8)
+            .attr('refY', 0)
+            .attr('markerWidth', 6)
+            .attr('markerHeight', 6)
+            .attr('orient', 'auto')
+            .append('path')
+            .attr('d', 'M0,-5L10,0L0,5')
+            .style('fill', '#58a6ff')
+            .style('stroke', 'none');
+
         const link = g.append('g')
             .selectAll('path')
-            .data(graph.links)
+            .data(allLinks)
             .enter()
             .append('path')
             .attr('class', 'link')
             .style('fill', 'none')
-            .style('stroke', '#30363d')
-            .style('stroke-width', '2px');
+            .style('stroke', d => d.isBranchLink ? '#58a6ff' : '#30363d')
+            .style('stroke-dasharray', d => d.isBranchLink ? '4 3' : null)
+            .style('stroke-width', d => d.isBranchLink ? '1.5px' : '2px')
+            .attr('marker-end', d => d.isBranchLink ? 'url(#branch-arrow)' : null);
 
         const node = g.append('g')
             .selectAll('g')
-            .data(graph.nodes)
+            .data(originalNodes)
             .enter()
             .append('g')
             .attr('class', 'node')
@@ -384,14 +426,53 @@ fetch('/api/graph')
             .style('fill', '#8b949e')
             .style('pointer-events', 'none');
 
-        node.filter(d => d.branches && d.branches.length > 0)
-            .append('text')
-            .attr('dx', 12)
-            .attr('dy', -8)
-            .text(d => d.branches.join(', '))
-            .style('font-size', '11px')
-            .style('fill', '#58a6ff')
-            .style('font-weight', '600')
+        // Branch label nodes (visually distinct)
+        const branch = g.append('g')
+            .selectAll('g')
+            .data(branchNodes)
+            .enter()
+            .append('g')
+            .attr('class', 'node branch-node')
+            .call(d3.drag()
+                .on('start', (event, d) => {
+                    if (!event.active) simulation.alphaTarget(0.3).restart();
+                    d.fx = d.x;
+                    d.fy = d.y;
+                })
+                .on('drag', (event, d) => {
+                    d.fx = event.x;
+                    d.fy = event.y;
+                })
+                .on('end', (event, d) => {
+                    if (!event.active) simulation.alphaTarget(0);
+                    d.fx = null;
+                    d.fy = null;
+                }))
+            .on('click', (event, d) => {
+                event.stopPropagation();
+                // Minimal popover for branch
+                showCommitPopover({ hash: d.name, message: 'Branch', branches: [d.name] }, event);
+            });
+
+        // Render branch node pill: rect + centered text
+        branch.each(function (d) { d._w = Math.max(48, (d.name.length * 7) + 18); d._h = 20; });
+        branch.append('rect')
+            .attr('x', d => -d._w / 2)
+            .attr('y', d => -d._h / 2)
+            .attr('rx', 9)
+            .attr('ry', 9)
+            .attr('width', d => d._w)
+            .attr('height', d => d._h)
+            .style('fill', 'rgba(56, 139, 253, 0.12)')
+            .style('stroke', '#58a6ff')
+            .style('stroke-width', '2px');
+        branch.append('text')
+            .attr('text-anchor', 'middle')
+            .attr('dy', '0.32em')
+            .text(d => d.name)
+            .style('font-size', '12px')
+            .style('font-weight', '700')
+            .style('fill', '#c9d1d9')
             .style('pointer-events', 'none');
 
         simulation.on('tick', () => {
@@ -400,10 +481,11 @@ fetch('/api/graph')
             });
 
             node.attr('transform', d => 'translate(' + d.x + ',' + d.y + ')');
+            branch.attr('transform', d => 'translate(' + d.x + ',' + d.y + ')');
         });
 
         // Initialize timeline and filtering
-        initTimelineFromNodes(graph.nodes);
+        initTimelineFromNodes(originalNodes);
         setupTimelinePlayback();
         const nodeHasTs = (d) => {
             const v = d.date || d.committerDate || d.authorDate;
@@ -418,12 +500,31 @@ fetch('/api/graph')
                 const ts = nodeHasTs(d);
                 return ts == null ? 'none' : (ts >= start && ts <= end ? null : 'none');
             });
-            // Link visibility (show only if both ends visible)
+            branch.style('display', (d) => {
+                // Branch nodes mirror visibility of their target commit via link lookup (branchLinks)
+                const l = branchLinks.find(bl => {
+                    const sid = typeof bl.source === 'object' ? bl.source.id : bl.source;
+                    return sid === d.id;
+                });
+                if (!l) return null; // if no explicit link, leave visible
+                const targetId = typeof l.target === 'object' ? l.target.id : l.target;
+                const targetNode = idToNode.get(targetId);
+                const ts = targetNode ? nodeHasTs(targetNode) : null;
+                return ts == null ? 'none' : (ts >= start && ts <= end ? null : 'none');
+            });
+            // Link visibility (show only if relevant ends visible)
             link.style('display', (d) => {
-                const s = nodeHasTs(d.source);
-                const t = nodeHasTs(d.target);
-                if (s == null || t == null) return 'none';
-                return (s >= start && s <= end && t >= start && t <= end) ? null : 'none';
+                if (d.isBranchLink) {
+                    // For branch links, visibility mirrors the target commit only
+                    const targetNode = typeof d.target === 'object' ? d.target : idToNode.get(d.target);
+                    const ts = targetNode ? nodeHasTs(targetNode) : null;
+                    return ts == null ? 'none' : (ts >= start && ts <= end ? null : 'none');
+                } else {
+                    const s = nodeHasTs(d.source);
+                    const t = nodeHasTs(d.target);
+                    if (s == null || t == null) return 'none';
+                    return (s >= start && s <= end && t >= start && t <= end) ? null : 'none';
+                }
             });
         };
         applyTimeFilter();
