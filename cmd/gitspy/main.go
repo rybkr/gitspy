@@ -3,8 +3,8 @@ package main
 import (
 	"flag"
     "fmt"
-    "gitspy/internal/git"
-    "gitspy/internal/server"
+    "github.com/rybkr/gitspy/internal/git"
+    "github.com/rybkr/gitspy/internal/server"
 	"log"
 	"os"
     "path/filepath"
