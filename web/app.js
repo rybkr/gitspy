@@ -255,13 +255,35 @@ function setupTimelinePlayback() {
     function step(ts) {
         if (!timeline.playing) return;
         if (step.prevTs == null) step.prevTs = ts;
+        if (step.pauseUntil && ts < step.pauseUntil) {
+            // Hold at the end during pause window
+            timeline.endTs = timeline.maxTs;
+            if (typeof updateTimelineUI === 'function') updateTimelineUI();
+            if (typeof applyTimeFilter === 'function') applyTimeFilter();
+            timeline.rafId = requestAnimationFrame(step);
+            return;
+        }
         const dt = ts - step.prevTs;
         step.prevTs = ts;
         const total = (timeline.maxTs - timeline.minTs) || 1;
         const delta = (dt / DURATION_MS) * total;
         let nextEnd = (timeline.endTs ?? timeline.minTs) + delta;
-        if (nextEnd > timeline.maxTs) {
-            nextEnd = timeline.minTs + (nextEnd - timeline.maxTs);
+        if (nextEnd >= timeline.maxTs) {
+            // Clamp to end, start a 1s pause, then wrap back to min
+            timeline.endTs = timeline.maxTs;
+            if (!step.pauseUntil) {
+                step.pauseUntil = ts + 1000; // 1s pause at end
+            } else if (ts >= step.pauseUntil) {
+                // Pause done, wrap to beginning and clear pause
+                step.pauseUntil = null;
+                timeline.endTs = timeline.minTs;
+                timeline.startTs = timeline.minTs;
+                step.prevTs = ts;
+            }
+            if (typeof updateTimelineUI === 'function') updateTimelineUI();
+            if (typeof applyTimeFilter === 'function') applyTimeFilter();
+            timeline.rafId = requestAnimationFrame(step);
+            return;
         }
         // Ensure end >= start
         if (nextEnd < timeline.startTs) {
@@ -352,7 +374,7 @@ fetch('/api/graph')
         const allLinks = originalLinks.concat(branchLinks);
 
         const simulation = d3.forceSimulation(allNodes)
-            .force('link', d3.forceLink(allLinks).id(d => d.id).distance(d => d.isBranchLink ? 150 : 100))
+            .force('link', d3.forceLink(allLinks).id(d => d.id).distance(d => d.isBranchLink ? 120 : 80))
             .force('charge', d3.forceManyBody().strength(d => d.isBranch ? -80 : -300))
             .force('center', d3.forceCenter(width / 2, height / 2))
             .force('collision', d3.forceCollide().radius(30));
