@@ -151,6 +151,45 @@ body.dragging-timeline {
     gap: 8px;
 }
 
+/* Git config key-value list */
+#config-section .kv-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+#config-section .kv-item {
+    display: grid;
+    grid-template-columns: 160px 1fr;
+    gap: 10px;
+    padding: 8px 10px;
+    border: 1px solid #21262d;
+    border-radius: 8px;
+    background: rgba(22, 27, 34, 0.35);
+}
+
+#config-section .kv-key {
+    color: #8b949e;
+    font-size: 12px;
+}
+
+#config-section .kv-value {
+    font-size: 13px;
+    color: #c9d1d9;
+    word-break: break-all;
+}
+
+#config-section .kv-group {
+    margin-top: 8px;
+}
+
+#config-section .kv-group-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: #a371f7;
+    margin: 10px 0 6px 0;
+}
+
 /* Repo Status */
 #status-section .status-title {
     font-size: 12px;
