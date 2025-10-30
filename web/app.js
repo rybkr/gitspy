@@ -474,7 +474,7 @@ fetch('/api/graph')
         defs.append('marker')
             .attr('id', 'branch-arrow')
             .attr('viewBox', '0 -5 10 10')
-            .attr('refX', 8)
+            .attr('refX', 10)
             .attr('refY', 0)
             .attr('markerWidth', 6)
             .attr('markerHeight', 6)
@@ -482,6 +482,18 @@ fetch('/api/graph')
             .append('path')
             .attr('d', 'M0,-5L10,0L0,5')
             .style('fill', '#58a6ff')
+            .style('stroke', 'none');
+        defs.append('marker')
+            .attr('id', 'commit-arrow')
+            .attr('viewBox', '0 -5 10 10')
+            .attr('refX', 10)
+            .attr('refY', 0)
+            .attr('markerWidth', 5)
+            .attr('markerHeight', 5)
+            .attr('orient', 'auto')
+            .append('path')
+            .attr('d', 'M0,-5L10,0L0,5')
+            .style('fill', '#8b949e')
             .style('stroke', 'none');
 
         const link = g.append('g')
@@ -494,7 +506,7 @@ fetch('/api/graph')
             .style('stroke', d => d.isBranchLink ? '#58a6ff' : '#30363d')
             .style('stroke-dasharray', d => d.isBranchLink ? '4 3' : null)
             .style('stroke-width', d => d.isBranchLink ? '1.5px' : '2px')
-            .attr('marker-end', d => d.isBranchLink ? 'url(#branch-arrow)' : null);
+            .attr('marker-end', d => d.isBranchLink ? 'url(#branch-arrow)' : 'url(#commit-arrow)');
 
         const node = g.append('g')
             .selectAll('g')
@@ -588,8 +600,26 @@ fetch('/api/graph')
             .style('pointer-events', 'none');
 
         simulation.on('tick', () => {
+            const NODE_R = 6; // commit circle radius
+            const ARROW_PAD = 2; // small padding before marker
             link.attr('d', d => {
-                return 'M' + d.source.x + ',' + d.source.y + 'L' + d.target.x + ',' + d.target.y;
+                // Resolve endpoints (d3 may mutate to node objects)
+                const sx = (typeof d.source === 'object' ? d.source.x : idToNode.get(d.source).x) || 0;
+                const sy = (typeof d.source === 'object' ? d.source.y : idToNode.get(d.source).y) || 0;
+                const tx = (typeof d.target === 'object' ? d.target.x : idToNode.get(d.target).x) || 0;
+                const ty = (typeof d.target === 'object' ? d.target.y : idToNode.get(d.target).y) || 0;
+                let dx = tx - sx;
+                let dy = ty - sy;
+                const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+                // Shorten end by target radius + padding so arrow lands at edge
+                const targetOffset = NODE_R + ARROW_PAD;
+                const ex = tx - (dx / dist) * targetOffset;
+                const ey = ty - (dy / dist) * targetOffset;
+                // Optionally shorten start a touch to avoid overlapping source node
+                const sourceOffset = d.isBranchLink ? 0 : 0;
+                const sx2 = sx + (dx / dist) * sourceOffset;
+                const sy2 = sy + (dy / dist) * sourceOffset;
+                return 'M' + sx2 + ',' + sy2 + 'L' + ex + ',' + ey;
             });
 
             node.attr('transform', d => 'translate(' + d.x + ',' + d.y + ')');
