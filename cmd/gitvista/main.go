@@ -6,8 +6,6 @@ import (
     "github.com/rybkr/gitvista/internal/git"
     "github.com/rybkr/gitvista/internal/server"
 	"log"
-	"os"
-    "path/filepath"
 )
 
 func main() {
@@ -15,15 +13,7 @@ func main() {
     port := flag.String("port", "8080", "Port to serve on")
 	flag.Parse()
 
-    if _, err := os.Stat(filepath.Join(*repoPath, ".git")); err != nil {
-		if os.IsNotExist(err) {
-			log.Fatalf("(not a git repository) %v\n", err)
-		} else {
-			log.Fatal(err)
-		}
-	}
-
-    repo, err := git.NewRepository(filepath.Join(*repoPath, ".git"))
+    repo, err := git.NewRepository(*repoPath)
     if err != nil {
         log.Fatal(err)
     }
