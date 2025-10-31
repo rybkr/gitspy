@@ -29,6 +29,7 @@ type Graph struct {
 
 type GraphNode struct {
 	ID       string   `json:"id"`
+	Hash     string   `json:"hash"`
 	Message  string   `json:"message"`
 	Author   string   `json:"author"`
 	Date     string   `json:"date"`
