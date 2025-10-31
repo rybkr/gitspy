@@ -100,27 +100,10 @@ class GraphVisualization {
 
 		const hasChanges = nodesChanged || branchesChanged || linksChanged;
 
-		// Only update DOM if there are actual changes
+		// Only update if there are actual changes
 		if (hasChanges) {
-			// Update nodes (commits)
-			if (nodesChanged && originalNodes.length > 0) {
-				this.updateNodes(originalNodes);
-			}
-
-			// Update branches
-			if (branchesChanged && branchNodes.length > 0) {
-				this.updateBranches(branchNodes);
-			}
-
-			// Update links
-			if (linksChanged) {
-				this.updateLinks(allLinks);
-			}
-		}
-
-		// Only update simulation if there are actual changes
-		if (hasChanges) {
-			// Update simulation data - preserve positions of existing nodes
+			// STEP 1: Create merged nodes that preserve existing node references
+			// This MUST happen before DOM updates so we can bind the same objects to DOM
 			const currentAllNodes = [...originalNodes, ...branchNodes];
 			const existingNodesMap = new Map();
 			if (this.simulation.nodes()) {
@@ -129,40 +112,69 @@ class GraphVisualization {
 				}
 			}
 
-			// Merge existing node positions with new nodes
 			const centerX = this.canvas.clientWidth / 2;
 			const centerY = this.canvas.clientHeight / 2;
 
+			// Build merged nodes: reuse existing node objects, create new ones for new nodes
 			const mergedNodes = currentAllNodes.map((node) => {
 				const existing = existingNodesMap.get(node.id);
-				let x, y, vx, vy;
 
-				if (existing && typeof existing.x === "number" && typeof existing.y === "number" &&
-					!isNaN(existing.x) && !isNaN(existing.y)) {
-					// Preserve position and velocity from existing node
-					x = existing.x;
-					y = existing.y;
-					vx = existing.vx || 0;
-					vy = existing.vy || 0;
+				if (existing) {
+					// For existing nodes, reuse the object (preserves DOM/simulation connection)
+					// Save position/velocity before updating
+					const savedX = existing.x;
+					const savedY = existing.y;
+					const savedVx = existing.vx;
+					const savedVy = existing.vy;
+					// Update properties from new data
+					Object.assign(existing, node);
+					// Restore position/velocity (unless they were invalid)
+					if (typeof savedX === "number" && typeof savedY === "number" &&
+						!isNaN(savedX) && !isNaN(savedY)) {
+						existing.x = savedX;
+						existing.y = savedY;
+					} else {
+						// Position was invalid, set new one
+						existing.x = centerX + (Math.random() - 0.5) * 100;
+						existing.y = centerY + (Math.random() - 0.5) * 100;
+					}
+					existing.vx = savedVx || 0;
+					existing.vy = savedVy || 0;
+					return existing;
 				} else {
-					// For new nodes, use their x/y if valid, otherwise set default
+					// For new nodes, ensure they have valid positions
+					let x, y;
 					if (typeof node.x === "number" && typeof node.y === "number" &&
 						!isNaN(node.x) && !isNaN(node.y)) {
 						x = node.x;
 						y = node.y;
 					} else {
-						// Set default position
 						x = centerX + (Math.random() - 0.5) * 100;
 						y = centerY + (Math.random() - 0.5) * 100;
 					}
-					vx = 0;
-					vy = 0;
+					// Create new object for new nodes with valid positions
+					return { ...node, x, y, vx: 0, vy: 0 };
 				}
-
-				// Ensure we always return valid numbers
-				return { ...node, x, y, vx, vy };
 			});
 
+			// Separate merged nodes into commits and branches
+			const mergedCommitNodes = mergedNodes.filter((n) => !n.isBranch);
+			const mergedBranchNodes = mergedNodes.filter((n) => n.isBranch);
+
+			// STEP 2: Update DOM with merged nodes (same objects that will go to simulation)
+			if (nodesChanged && mergedCommitNodes.length > 0) {
+				this.updateNodesWithMerged(mergedCommitNodes);
+			}
+
+			if (branchesChanged && mergedBranchNodes.length > 0) {
+				this.updateBranchesWithMerged(mergedBranchNodes);
+			}
+
+			if (linksChanged) {
+				this.updateLinks(allLinks);
+			}
+
+			// STEP 3: Update simulation with merged nodes
 			// Create a map of node IDs to node objects for link resolution
 			const nodeMap = new Map(mergedNodes.map((node) => [node.id, node]));
 
@@ -197,6 +209,68 @@ class GraphVisualization {
 		this.nodes = originalNodes;
 		this.links = allLinks;
 		this.branches = branchNodes;
+	}
+
+	updateNodesWithMerged(mergedNodes) {
+		// Update DOM using merged nodes (same objects as simulation)
+		// Use stored nodes to track what exists
+		const existingNodeIds = new Set((this.nodes || []).map((n) => n.id));
+		const newNodeIds = new Set(mergedNodes.map((n) => n.id));
+
+		// Find nodes to add and remove
+		const nodesToAdd = mergedNodes.filter((n) => !existingNodeIds.has(n.id));
+		const nodesToRemove = Array.from(existingNodeIds).filter(
+			(id) => !newNodeIds.has(id),
+		);
+
+		// Ensure container group exists
+		let container = this.mainGroup.select("g.node-selection");
+		if (container.empty()) {
+			container = this.mainGroup.append("g").attr("class", "node-selection");
+		}
+
+		// Update existing selection with key function for consistent matching
+		// CRITICAL: Use mergedNodes here so DOM binds to same objects as simulation
+		this.nodeSelection = container
+			.selectAll("g.node")
+			.data(mergedNodes, (d) => d.id);
+
+		// Remove nodes that no longer exist
+		const exitNodes = this.nodeSelection.exit();
+		if (nodesToRemove.length > 0 && mergedNodes.length > 0) {
+			exitNodes.remove();
+		}
+
+		// Add new nodes
+		const enterNodes = this.nodeSelection.enter().append("g").attr("class", "node");
+
+		enterNodes
+			.call(this.createDragBehavior())
+			.on("click", (event, d) => {
+				event.stopPropagation();
+				this.onNodeClick(d, event);
+			});
+
+		enterNodes
+			.append("circle")
+			.attr("r", 6)
+			.style("fill", (d) => (d.type === "merge" ? "#a371f7" : "#58a6ff"))
+			.style("stroke", (d) => (d.type === "merge" ? "#8957e5" : "#1f6feb"))
+			.style("stroke-width", "2px")
+			.style("cursor", "pointer");
+
+		enterNodes
+			.append("text")
+			.attr("dx", 12)
+			.attr("dy", 4)
+			.text((d) => d.hash.substring(0, 7))
+			.style("font-family", "monospace")
+			.style("font-size", "11px")
+			.style("fill", "#8b949e")
+			.style("pointer-events", "none");
+
+		// Merge enter and update selections
+		this.nodeSelection = enterNodes.merge(this.nodeSelection);
 	}
 
 	updateNodes(newNodes) {
@@ -299,6 +373,71 @@ class GraphVisualization {
 				}
 			});
 		}
+	}
+
+	updateBranchesWithMerged(mergedBranchNodes) {
+		// Update DOM using merged branch nodes (same objects as simulation)
+		const existingBranchIds = new Set((this.branches || []).map((b) => b.id));
+		const branchesToAdd = mergedBranchNodes.filter((b) => !existingBranchIds.has(b.id));
+
+		// Ensure container group exists
+		let container = this.mainGroup.select("g.branch-selection");
+		if (container.empty()) {
+			container = this.mainGroup.append("g").attr("class", "branch-selection");
+		}
+
+		// Update existing selection with merged nodes (same objects as simulation)
+		this.branchSelection = container
+			.selectAll("g.branch-node")
+			.data(mergedBranchNodes, (d) => d.id);
+
+		// Remove branches that no longer exist
+		const exitBranches = this.branchSelection.exit();
+		exitBranches.remove();
+
+		// Add new branches
+		const enterBranches = this.branchSelection
+			.enter()
+			.append("g")
+			.attr("class", "node branch-node");
+
+		enterBranches.call(this.createDragBehavior()).on("click", (event, d) => {
+			event.stopPropagation();
+			this.onNodeClick(
+				{ hash: d.name, message: "Branch", branches: [d.name] },
+				event,
+			);
+		});
+
+		enterBranches.each((d) => {
+			d._w = Math.max(48, d.name.length * 7 + 18);
+			d._h = 20;
+		});
+
+		enterBranches
+			.append("rect")
+			.attr("x", (d) => -d._w / 2)
+			.attr("y", (d) => -d._h / 2)
+			.attr("rx", 9)
+			.attr("ry", 9)
+			.attr("width", (d) => d._w)
+			.attr("height", (d) => d._h)
+			.style("fill", "rgba(56, 139, 253, 0.12)")
+			.style("stroke", "#58a6ff")
+			.style("stroke-width", "2px");
+
+		enterBranches
+			.append("text")
+			.attr("text-anchor", "middle")
+			.attr("dy", "0.32em")
+			.text((d) => d.name)
+			.style("font-size", "12px")
+			.style("font-weight", "700")
+			.style("fill", "#c9d1d9")
+			.style("pointer-events", "none");
+
+		// Merge enter and update selections
+		this.branchSelection = enterBranches.merge(this.branchSelection);
 	}
 
 	updateBranches(newBranchNodes) {
