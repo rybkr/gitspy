@@ -10,6 +10,13 @@ type GitConfig struct {
 	Core CoreConfig `json:"core"`
 }
 
+type CoreConfig struct {
+	RepositorysitoryFormatVersion string `json:"repositoryformatversion"`
+	FileMode                      string `json:"filemode"`
+	Bare                          string `json:"bare"`
+	LogAllRefUpdates              string `json:"logallrefupdates"`
+}
+
 func (r *Repository) GetConfig() (*GitConfig, error) {
 	config := &GitConfig{}
 
@@ -54,13 +61,6 @@ func parseGitConfig(configPath string, config *GitConfig) error {
 	}
 
 	return nil
-}
-
-type CoreConfig struct {
-	RepositorysitoryFormatVersion string `json:"repositoryformatversion"`
-	FileMode                string `json:"filemode"`
-	Bare                    string `json:"bare"`
-	LogAllRefUpdates        string `json:"logallrefupdates"`
 }
 
 func parseCoreConfigParam(key, value string, core *CoreConfig) {
