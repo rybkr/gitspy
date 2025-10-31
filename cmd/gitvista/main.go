@@ -3,8 +3,8 @@ package main
 import (
 	"flag"
     "fmt"
-    "github.com/rybkr/gitspy/internal/git"
-    "github.com/rybkr/gitspy/internal/server"
+    "github.com/rybkr/gitvista/internal/git"
+    "github.com/rybkr/gitvista/internal/server"
 	"log"
 	"os"
     "path/filepath"

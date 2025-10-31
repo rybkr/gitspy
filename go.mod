@@ -1,3 +1,3 @@
-module github.com/rybkr/gitspy
+module github.com/rybkr/gitvista
 
 go 1.25.1

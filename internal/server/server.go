@@ -2,7 +2,7 @@ package server
 
 import (
 	"encoding/json"
-	"github.com/rybkr/gitspy/internal/git"
+	"github.com/rybkr/gitvista/internal/git"
 	"net/http"
 )
 
