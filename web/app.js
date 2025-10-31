@@ -19,6 +19,10 @@ class GitVistaApp {
 			await this.loadConfig();
 			await this.loadStatus();
 			await this.loadGraph();
+			setInterval(() => this.loadRepositoryInfo(), 1000);
+			setInterval(() => this.loadConfig(), 1000);
+			setInterval(() => this.loadStatus(), 1000);
+			setInterval(() => this.loadGraph(), 1000);
 		} catch (error) {
 			console.error("Error initializing application:", error);
 		}

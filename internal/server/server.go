@@ -3,12 +3,20 @@ package server
 import (
 	"encoding/json"
 	"github.com/rybkr/gitvista/internal/git"
+    "sync"
 	"net/http"
 )
 
 type Server struct {
-	repo *git.Repository
-	port string
+	repo   *git.Repository
+	port   string
+	mu     sync.RWMutex
+	cached struct {
+		info   *git.Repository
+		config interface{}
+		graph  interface{}
+		status interface{}
+	}
 }
 
 func NewServer(repo *git.Repository, port string) *Server {
@@ -22,48 +30,40 @@ func (s *Server) Start() error {
 	fs := http.FileServer(http.Dir("./web"))
 	http.Handle("/", fs)
 
-    http.HandleFunc("/api/info", s.handleInfo)
+	http.HandleFunc("/api/info", s.handleInfo)
 	http.HandleFunc("/api/config", s.handleConfig)
 	http.HandleFunc("/api/graph", s.handleGraph)
-    http.HandleFunc("/api/status", s.handleStatus)
+	http.HandleFunc("/api/status", s.handleStatus)
+
+    go s.pollRepo()
 
 	return http.ListenAndServe(":"+s.port, nil)
 }
 
 func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
+    s.mu.RLock()
+    defer s.mu.RUnlock()
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.repo)
+	json.NewEncoder(w).Encode(s.cached.info)
 }
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
-	config, err := s.repo.GetConfig()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
+    s.mu.RLock()
+    defer s.mu.RUnlock()
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(config)
+	json.NewEncoder(w).Encode(s.cached.config)
 }
 
 func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
-	graph, err := s.repo.GetGraph()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
+    s.mu.RLock()
+    defer s.mu.RUnlock()
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(graph)
+	json.NewEncoder(w).Encode(s.cached.graph)
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
-	status, err := s.repo.GetStatus()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
+    s.mu.RLock()
+    defer s.mu.RUnlock()
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(status)
+	json.NewEncoder(w).Encode(s.cached.status)
 }
