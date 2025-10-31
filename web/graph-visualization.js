@@ -5,8 +5,8 @@
 class GraphVisualization {
 	constructor(containerId, options = {}) {
 		this.containerId = containerId;
-		this.onNodeClick = options.onNodeClick || (() => {});
-		this.onTimeFilterChange = options.onTimeFilterChange || (() => {});
+		this.onNodeClick = options.onNodeClick || (() => { });
+		this.onTimeFilterChange = options.onTimeFilterChange || (() => { });
 
 		this.canvas = document.getElementById("canvas");
 		this.container = document.getElementById(containerId);
@@ -31,9 +31,10 @@ class GraphVisualization {
 
 		this.setupSVG();
 		this.setupSimulation(allNodes, allLinks);
+		// Render links first so they appear behind nodes (SVG renders in order)
+		this.renderLinks(allLinks);
 		this.renderNodes(originalNodes);
 		this.renderBranches(branchNodes);
-		this.renderLinks(allLinks);
 		this.setupZoom();
 
 		this.simulation.on("tick", () => this.onTick());
@@ -164,16 +165,7 @@ class GraphVisualization {
 			const mergedCommitNodes = mergedNodes.filter((n) => !n.isBranch);
 			const mergedBranchNodes = mergedNodes.filter((n) => n.isBranch);
 
-			// STEP 2: Update DOM with merged nodes (same objects that will go to simulation)
-			if (nodesChanged && mergedCommitNodes.length > 0) {
-				this.updateNodesWithMerged(mergedCommitNodes);
-			}
-
-			if (branchesChanged && mergedBranchNodes.length > 0) {
-				this.updateBranchesWithMerged(mergedBranchNodes);
-			}
-
-			// STEP 3: Create resolved links (before updating DOM)
+			// STEP 2: Create resolved links (before updating DOM)
 			// Create a map of node IDs to node objects for link resolution
 			const nodeMap = new Map(mergedNodes.map((node) => [node.id, node]));
 
@@ -198,12 +190,21 @@ class GraphVisualization {
 				})
 				.filter((link) => link !== null);
 
-			// STEP 4: Update DOM with resolved links (same objects as simulation)
+			// STEP 4: Update DOM with resolved links FIRST (so they appear behind nodes)
 			if (linksChanged) {
 				this.updateLinksWithResolved(resolvedLinks);
 			}
 
-			// STEP 5: Update simulation with merged nodes
+			// STEP 5: Update DOM with merged nodes (after links, so nodes appear on top)
+			if (nodesChanged && mergedCommitNodes.length > 0) {
+				this.updateNodesWithMerged(mergedCommitNodes);
+			}
+
+			if (branchesChanged && mergedBranchNodes.length > 0) {
+				this.updateBranchesWithMerged(mergedBranchNodes);
+			}
+
+			// STEP 6: Update simulation with merged nodes
 			this.simulation.nodes(mergedNodes);
 			this.simulation.force("link").links(resolvedLinks);
 
@@ -231,9 +232,11 @@ class GraphVisualization {
 			(id) => !newNodeIds.has(id),
 		);
 
-		// Ensure container group exists
+		// Ensure container group exists - nodes should be after links
+		// Since links are rendered first during init, node-selection will be after link-selection
 		let container = this.mainGroup.select("g.node-selection");
 		if (container.empty()) {
+			// If somehow missing, append it (will be after link-selection if that exists)
 			container = this.mainGroup.append("g").attr("class", "node-selection");
 		}
 
@@ -301,9 +304,11 @@ class GraphVisualization {
 			(id) => !newNodeIds.has(id),
 		);
 
-		// Ensure container group exists
+		// Ensure container group exists - nodes should be after links
+		// Since links are rendered first during init, node-selection will be after link-selection
 		let container = this.mainGroup.select("g.node-selection");
 		if (container.empty()) {
+			// If somehow missing, append it (will be after link-selection if that exists)
 			container = this.mainGroup.append("g").attr("class", "node-selection");
 		}
 
@@ -391,7 +396,7 @@ class GraphVisualization {
 						// Position near a random existing node
 						const ref =
 							existingNodePositions[
-								Math.floor(Math.random() * existingNodePositions.length)
+							Math.floor(Math.random() * existingNodePositions.length)
 							];
 						node.x = ref.x + (Math.random() - 0.5) * 100;
 						node.y = ref.y + (Math.random() - 0.5) * 100;
@@ -409,9 +414,11 @@ class GraphVisualization {
 	}
 
 	updateBranchesWithMerged(mergedBranchNodes) {
-		// Ensure container group exists
+		// Ensure container group exists - branches should be after nodes
+		// Since links and nodes are rendered first during init, branch-selection will be last
 		let container = this.mainGroup.select("g.branch-selection");
 		if (container.empty()) {
+			// If somehow missing, append it (will be after link-selection and node-selection)
 			container = this.mainGroup.append("g").attr("class", "branch-selection");
 		}
 
@@ -476,9 +483,11 @@ class GraphVisualization {
 			(b) => !existingBranchIds.has(b.id),
 		);
 
-		// Ensure container group exists
+		// Ensure container group exists - branches should be after nodes
+		// Since links and nodes are rendered first during init, branch-selection will be last
 		let container = this.mainGroup.select("g.branch-selection");
 		if (container.empty()) {
+			// If somehow missing, append it (will be after link-selection and node-selection)
 			container = this.mainGroup.append("g").attr("class", "branch-selection");
 		}
 
@@ -581,10 +590,18 @@ class GraphVisualization {
 			return `${sourceId}->${targetId}`;
 		};
 
-		// Ensure container group exists
+		// Ensure container group exists - links should be first (behind nodes)
 		let container = this.mainGroup.select("g.link-selection");
 		if (container.empty()) {
-			container = this.mainGroup.append("g").attr("class", "link-selection");
+			// Insert links group at the beginning (before any nodes/branches)
+			// Check if mainGroup has any children first
+			const firstChild = this.mainGroup.node()?.firstChild;
+			if (firstChild) {
+				container = this.mainGroup.insert("g", () => firstChild)
+					.attr("class", "link-selection");
+			} else {
+				container = this.mainGroup.append("g").attr("class", "link-selection");
+			}
 		}
 
 		// Update existing selection with resolved links
@@ -623,10 +640,18 @@ class GraphVisualization {
 			return `${sourceId}->${targetId}`;
 		};
 
-		// Ensure container group exists
+		// Ensure container group exists - links should be first (behind nodes)
 		let container = this.mainGroup.select("g.link-selection");
 		if (container.empty()) {
-			container = this.mainGroup.append("g").attr("class", "link-selection");
+			// Insert links group at the beginning (before any nodes/branches)
+			// Check if mainGroup has any children first
+			const firstChild = this.mainGroup.node()?.firstChild;
+			if (firstChild) {
+				container = this.mainGroup.insert("g", () => firstChild)
+					.attr("class", "link-selection");
+			} else {
+				container = this.mainGroup.append("g").attr("class", "link-selection");
+			}
 		}
 
 		// Update existing selection
