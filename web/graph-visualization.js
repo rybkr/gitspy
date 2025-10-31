@@ -130,20 +130,37 @@ class GraphVisualization {
 			}
 
 			// Merge existing node positions with new nodes
+			const centerX = this.canvas.clientWidth / 2;
+			const centerY = this.canvas.clientHeight / 2;
+
 			const mergedNodes = currentAllNodes.map((node) => {
 				const existing = existingNodesMap.get(node.id);
-				if (existing && typeof existing.x === "number" && typeof existing.y === "number") {
+				let x, y, vx, vy;
+
+				if (existing && typeof existing.x === "number" && typeof existing.y === "number" &&
+					!isNaN(existing.x) && !isNaN(existing.y)) {
 					// Preserve position and velocity from existing node
-					return { ...node, x: existing.x, y: existing.y, vx: existing.vx, vy: existing.vy };
+					x = existing.x;
+					y = existing.y;
+					vx = existing.vx || 0;
+					vy = existing.vy || 0;
+				} else {
+					// For new nodes, use their x/y if valid, otherwise set default
+					if (typeof node.x === "number" && typeof node.y === "number" &&
+						!isNaN(node.x) && !isNaN(node.y)) {
+						x = node.x;
+						y = node.y;
+					} else {
+						// Set default position
+						x = centerX + (Math.random() - 0.5) * 100;
+						y = centerY + (Math.random() - 0.5) * 100;
+					}
+					vx = 0;
+					vy = 0;
 				}
-				// For new nodes, ensure they have x/y set (should be set in updateNodes)
-				// But if somehow they don't, set them now
-				if (typeof node.x !== "number" || typeof node.y !== "number") {
-					const centerX = this.canvas.clientWidth / 2;
-					const centerY = this.canvas.clientHeight / 2;
-					return { ...node, x: centerX + (Math.random() - 0.5) * 100, y: centerY + (Math.random() - 0.5) * 100 };
-				}
-				return { ...node };
+
+				// Ensure we always return valid numbers
+				return { ...node, x, y, vx, vy };
 			});
 
 			// Create a map of node IDs to node objects for link resolution
@@ -249,16 +266,23 @@ class GraphVisualization {
 		this.nodeSelection = enterNodes.merge(this.nodeSelection);
 
 		// Initialize positions for new nodes
+		// CRITICAL: Set positions directly on node objects before they go to simulation
 		if (nodesToAdd.length > 0) {
 			const centerX = this.canvas.clientWidth / 2;
 			const centerY = this.canvas.clientHeight / 2;
 			// Try to position near an existing node, or use center
-			const existingNodePositions = (this.nodes || [])
-				.filter((n) => typeof n.x === "number" && typeof n.y === "number")
-				.map((n) => ({ x: n.x, y: n.y }));
+			const existingNodePositions = (this.simulation?.nodes() || [])
+				.filter((n) => !n.isBranch && typeof n.x === "number" && typeof n.y === "number" && !isNaN(n.x) && !isNaN(n.y))
+				.map((n) => ({ x: n.x, y: n.y }))
+				.concat(
+					(this.nodes || [])
+						.filter((n) => typeof n.x === "number" && typeof n.y === "number" && !isNaN(n.x) && !isNaN(n.y))
+						.map((n) => ({ x: n.x, y: n.y }))
+				);
 
 			nodesToAdd.forEach((node) => {
-				if (typeof node.x !== "number" || typeof node.y !== "number") {
+				// Always ensure valid x/y values
+				if (typeof node.x !== "number" || typeof node.y !== "number" || isNaN(node.x) || isNaN(node.y)) {
 					if (existingNodePositions.length > 0) {
 						// Position near a random existing node
 						const ref = existingNodePositions[Math.floor(Math.random() * existingNodePositions.length)];
@@ -269,6 +293,9 @@ class GraphVisualization {
 						node.x = centerX + (Math.random() - 0.5) * 100;
 						node.y = centerY + (Math.random() - 0.5) * 100;
 					}
+					// Ensure velocity is zero for new nodes
+					node.vx = 0;
+					node.vy = 0;
 				}
 			});
 		}
@@ -641,22 +668,20 @@ class GraphVisualization {
 
 		if (this.linkSelection) {
 			this.linkSelection.attr("d", (d) => {
-				const sx =
-					(typeof d.source === "object"
-						? d.source.x
-						: this.idToNode.get(d.source)?.x) || 0;
-				const sy =
-					(typeof d.source === "object"
-						? d.source.y
-						: this.idToNode.get(d.source)?.y) || 0;
-				const tx =
-					(typeof d.target === "object"
-						? d.target.x
-						: this.idToNode.get(d.target)?.x) || 0;
-				const ty =
-					(typeof d.target === "object"
-						? d.target.y
-						: this.idToNode.get(d.target)?.y) || 0;
+				let sx = typeof d.source === "object" && d.source ? d.source.x :
+					(this.idToNode.get(d.source)?.x);
+				let sy = typeof d.source === "object" && d.source ? d.source.y :
+					(this.idToNode.get(d.source)?.y);
+				let tx = typeof d.target === "object" && d.target ? d.target.x :
+					(this.idToNode.get(d.target)?.x);
+				let ty = typeof d.target === "object" && d.target ? d.target.y :
+					(this.idToNode.get(d.target)?.y);
+
+				// Ensure all values are valid numbers
+				sx = (typeof sx === "number" && !isNaN(sx)) ? sx : 0;
+				sy = (typeof sy === "number" && !isNaN(sy)) ? sy : 0;
+				tx = (typeof tx === "number" && !isNaN(tx)) ? tx : 0;
+				ty = (typeof ty === "number" && !isNaN(ty)) ? ty : 0;
 
 				const dx = tx - sx;
 				const dy = ty - sy;
@@ -675,10 +700,18 @@ class GraphVisualization {
 		}
 
 		if (this.nodeSelection) {
-			this.nodeSelection.attr("transform", (d) => `translate(${d.x},${d.y})`);
+			this.nodeSelection.attr("transform", (d) => {
+				const x = (typeof d.x === "number" && !isNaN(d.x)) ? d.x : 0;
+				const y = (typeof d.y === "number" && !isNaN(d.y)) ? d.y : 0;
+				return `translate(${x},${y})`;
+			});
 		}
 		if (this.branchSelection) {
-			this.branchSelection.attr("transform", (d) => `translate(${d.x},${d.y})`);
+			this.branchSelection.attr("transform", (d) => {
+				const x = (typeof d.x === "number" && !isNaN(d.x)) ? d.x : 0;
+				const y = (typeof d.y === "number" && !isNaN(d.y)) ? d.y : 0;
+				return `translate(${x},${y})`;
+			});
 		}
 	}
 
