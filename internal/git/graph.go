@@ -22,9 +22,13 @@ type Commit struct {
 	Branches []string `json:"branches,omitempty"`
 }
 
+type Graph struct {
+	Nodes []GraphNode `json:"nodes"`
+	Links []GraphLink `json:"links"`
+}
+
 type GraphNode struct {
 	ID       string   `json:"id"`
-	Hash     string   `json:"hash"`
 	Message  string   `json:"message"`
 	Author   string   `json:"author"`
 	Date     string   `json:"date"`
@@ -36,11 +40,6 @@ type GraphNode struct {
 type GraphLink struct {
 	Source string `json:"source"`
 	Target string `json:"target"`
-}
-
-type Graph struct {
-	Nodes []GraphNode `json:"nodes"`
-	Links []GraphLink `json:"links"`
 }
 
 func (r *Repository) GetGraph() (*Graph, error) {

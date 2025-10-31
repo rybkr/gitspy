@@ -14,31 +14,32 @@ import (
 )
 
 type Status struct {
-	Staged     []FileStatus `json:"staged"`
-	Modified   []FileStatus `json:"modified"`
-	Untracked  []string     `json:"untracked"`
-	Deleted    []FileStatus `json:"deleted"`
-	Conflicted []FileStatus `json:"conflicted"`
+	Staged     []File   `json:"staged"`
+	Modified   []File   `json:"modified"`
+	Deleted    []File   `json:"deleted"`
+	Conflicted []File   `json:"conflicted"`
+	Untracked  []string `json:"untracked"`
 }
 
-type FileStatus struct {
-	Path    string `json:"path"`
-	Status  string `json:"status"`
-	Hash    string `json:"hash"`
-	OldPath string `json:"oldPath,omitempty"`
+type File struct {
+	Path       string `json:"path"`
+	FileStatus string `json:"status"`
+	Hash       string `json:"hash"`
+	OldPath    string `json:"oldPath,omitempty"`
 }
 
+// See: https://git-scm.com/docs/index-format#_index_entry
 type IndexEntry struct {
-	CTimeSec  uint32
-	CTimeNano uint32
-	MTimeSec  uint32
-	MTimeNano uint32
-	Dev       uint32
-	Ino       uint32
-	Mode      uint32
-	UID       uint32
-	GID       uint32
-	Size      uint32
+	CTimeSec  uint32 // The last time the file's metadata changed
+	CTimeNano uint32 // CTimeSec's nanosecond fractions
+	MTimeSec  uint32 // The last time the file's data changed
+	MTimeNano uint32 // MTimeSec's nanosecond fractions
+	Dev       uint32 //
+	Ino       uint32 //
+	Mode      uint32 //
+	UID       uint32 //
+	GID       uint32 //
+	Size      uint32 // The on-disc file size
 	Hash      [20]byte
 	Flags     uint16
 	Path      string
@@ -46,11 +47,11 @@ type IndexEntry struct {
 
 func (r *Repository) GetStatus() (*Status, error) {
 	status := &Status{
-		Staged:     []FileStatus{},
-		Modified:   []FileStatus{},
+		Staged:     []File{},
+		Modified:   []File{},
 		Untracked:  []string{},
-		Deleted:    []FileStatus{},
-		Conflicted: []FileStatus{},
+		Deleted:    []File{},
+		Conflicted: []File{},
 	}
 
 	indexEntries, err := r.parseIndex()
@@ -62,10 +63,10 @@ func (r *Repository) GetStatus() (*Status, error) {
 	if err != nil {
 
 		for _, entry := range indexEntries {
-			status.Staged = append(status.Staged, FileStatus{
-				Path:   entry.Path,
-				Status: "A",
-				Hash:   fmt.Sprintf("%x", entry.Hash),
+			status.Staged = append(status.Staged, File{
+				Path:       entry.Path,
+				FileStatus: "A",
+				Hash:       fmt.Sprintf("%x", entry.Hash),
 			})
 		}
 	} else {
@@ -78,53 +79,63 @@ func (r *Repository) GetStatus() (*Status, error) {
 	return status, nil
 }
 
+// See: https://git-scm.com/docs/index-format#_the_git_index_file_has_the_following_format
 func (r *Repository) parseIndex() ([]IndexEntry, error) {
 	indexPath := filepath.Join(r.GitDir, "index")
 
-	file, err := os.Open(indexPath)
+	index, err := os.Open(indexPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return []IndexEntry{}, nil
 		}
 		return nil, err
 	}
-	defer file.Close()
+	defer index.Close()
 
+	// First a 12-byte header comprising:
+	//  4-byte signature { 'D', 'I', 'R', 'C' }("dircache")
+	//  4-byte version number (currently 2, 3, or 4)
+	//  32-bit number of index entries
 	header := make([]byte, 12)
-	if _, err := io.ReadFull(file, header); err != nil {
+	if _, err := io.ReadFull(index, header); err != nil {
 		return nil, fmt.Errorf("failed to read index header: %w", err)
 	}
 	if string(header[0:4]) != "DIRC" {
-		return nil, fmt.Errorf("invalid index file signature")
+		return nil, fmt.Errorf("invalid index file signature: %s", header[0:4])
 	}
 
 	version := binary.BigEndian.Uint32(header[4:8])
-	if version != 2 && version != 3 {
+	if version != 2 && version != 3 && version != 4 {
 		return nil, fmt.Errorf("unsupported index version: %d", version)
 	}
 
-	numEntries := binary.BigEndian.Uint32(header[8:12])
-	entries := make([]IndexEntry, 0, numEntries)
+	nEntries := binary.BigEndian.Uint32(header[8:12])
+	entries := make([]IndexEntry, 0, nEntries)
 
-	for i := uint32(0); i < numEntries; i++ {
-		entry, err := readIndexEntry(file, version)
+	// Next comes the sorted list of entries
+	for i := uint32(0); i < nEntries; i++ {
+		entry, err := readIndexEntry(index, version)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read entry %d: %w", i, err)
 		}
 		entries = append(entries, entry)
 	}
 
+	// Then there are extensions, identified by a 4-byte extension signature
+	// TODO(rybkr): Support relevant extension parsing
+
+	// Finally, there is a checksum of all file content
+	// TODO(rybkr): Consider validating the checksum for integrity
+
 	return entries, nil
 }
 
+// See: https://git-scm.com/docs/index-format#_index_entry
 func readIndexEntry(file *os.File, version uint32) (IndexEntry, error) {
 	var entry IndexEntry
+	pos, _ := file.Seek(0, io.SeekCurrent) // Get current position for debugging
 
-	// Get current position for debugging
-	pos, _ := file.Seek(0, io.SeekCurrent)
-
-	// Read fixed-size fields (62 bytes)
-	fixedData := make([]byte, 62)
+	fixedData := make([]byte, 62) // 62 == sizeof(IndexEntry) up until the string
 	n, err := io.ReadFull(file, fixedData)
 	if err != nil {
 		return entry, fmt.Errorf("reading fixed data at pos %d (read %d bytes): %w", pos, n, err)
@@ -145,15 +156,7 @@ func readIndexEntry(file *os.File, version uint32) (IndexEntry, error) {
 	binary.Read(buf, binary.BigEndian, &entry.Hash)
 	binary.Read(buf, binary.BigEndian, &entry.Flags)
 
-	// Get path length from flags (convert to int immediately)
 	pathLen := int(entry.Flags & 0xFFF)
-
-	// Sanity check
-	if pathLen > 4096 {
-		return entry, fmt.Errorf("path length %d seems invalid", pathLen)
-	}
-
-	// Read path bytes (without null terminator in the count)
 	pathBuf := make([]byte, pathLen)
 	n, err = io.ReadFull(file, pathBuf)
 	if err != nil {
@@ -161,16 +164,14 @@ func readIndexEntry(file *os.File, version uint32) (IndexEntry, error) {
 	}
 	entry.Path = string(pathBuf)
 
-	// Read null terminator
 	nullByte := make([]byte, 1)
 	if _, err := io.ReadFull(file, nullByte); err != nil {
 		return entry, fmt.Errorf("reading null terminator: %w", err)
 	}
 
-	// Calculate padding
 	totalRead := 62 + pathLen + 1
 	remainder := totalRead % 8
-	var paddingNeeded int
+	var paddingNeeded int = 0
 	if remainder != 0 {
 		paddingNeeded = 8 - remainder
 	}
@@ -273,8 +274,8 @@ func (r *Repository) readTreeRecursive(treeHash, prefix string) (map[string]stri
 	return result, nil
 }
 
-func (r *Repository) compareTreeWithIndex(headTree map[string]string, indexEntries []IndexEntry) []FileStatus {
-	var staged []FileStatus
+func (r *Repository) compareTreeWithIndex(headTree map[string]string, indexEntries []IndexEntry) []File {
+	var staged []File
 
 	indexMap := make(map[string]IndexEntry)
 	for _, entry := range indexEntries {
@@ -286,26 +287,26 @@ func (r *Repository) compareTreeWithIndex(headTree map[string]string, indexEntri
 		headHash, existsInHead := headTree[entry.Path]
 
 		if !existsInHead {
-			staged = append(staged, FileStatus{
-				Path:   entry.Path,
-				Status: "A",
-				Hash:   entryHash,
+			staged = append(staged, File{
+				Path:       entry.Path,
+				FileStatus: "A",
+				Hash:       entryHash,
 			})
 		} else if headHash != entryHash {
-			staged = append(staged, FileStatus{
-				Path:   entry.Path,
-				Status: "M",
-				Hash:   entryHash,
+			staged = append(staged, File{
+				Path:       entry.Path,
+				FileStatus: "M",
+				Hash:       entryHash,
 			})
 		}
 	}
 
 	for path, hash := range headTree {
 		if _, existsInIndex := indexMap[path]; !existsInIndex {
-			staged = append(staged, FileStatus{
-				Path:   path,
-				Status: "D",
-				Hash:   hash,
+			staged = append(staged, File{
+				Path:       path,
+				FileStatus: "D",
+				Hash:       hash,
 			})
 		}
 	}
@@ -313,9 +314,9 @@ func (r *Repository) compareTreeWithIndex(headTree map[string]string, indexEntri
 	return staged
 }
 
-func (r *Repository) compareWorkingTreeWithIndex(indexEntries []IndexEntry) ([]FileStatus, []FileStatus) {
-	var modified []FileStatus
-	var deleted []FileStatus
+func (r *Repository) compareWorkingTreeWithIndex(indexEntries []IndexEntry) ([]File, []File) {
+	var modified []File
+	var deleted []File
 
 	for _, entry := range indexEntries {
 		workingPath := filepath.Join(r.Path, entry.Path)
@@ -323,10 +324,10 @@ func (r *Repository) compareWorkingTreeWithIndex(indexEntries []IndexEntry) ([]F
 		info, err := os.Stat(workingPath)
 		if err != nil {
 			if os.IsNotExist(err) {
-				deleted = append(deleted, FileStatus{
-					Path:   entry.Path,
-					Status: "D",
-					Hash:   fmt.Sprintf("%x", entry.Hash),
+				deleted = append(deleted, File{
+					Path:       entry.Path,
+					FileStatus: "D",
+					Hash:       fmt.Sprintf("%x", entry.Hash),
 				})
 			}
 			continue
@@ -343,10 +344,10 @@ func (r *Repository) compareWorkingTreeWithIndex(indexEntries []IndexEntry) ([]F
 
 			indexHash := fmt.Sprintf("%x", entry.Hash)
 			if hash != indexHash {
-				modified = append(modified, FileStatus{
-					Path:   entry.Path,
-					Status: "M",
-					Hash:   hash,
+				modified = append(modified, File{
+					Path:       entry.Path,
+					FileStatus: "M",
+					Hash:       hash,
 				})
 			}
 		}
@@ -389,18 +390,6 @@ func (r *Repository) findUntrackedFiles(indexEntries []IndexEntry) []string {
 	return untracked
 }
 
-func hashFile(path string) (string, error) {
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-	header := fmt.Sprintf("blob %d\x00", len(content))
-	data := append([]byte(header), content...)
-
-	hash := sha1.Sum(data)
-	return fmt.Sprintf("%x", hash[:]), nil
-}
-
 func readObject(objectPath string) ([]byte, error) {
 	file, err := os.Open(objectPath)
 	if err != nil {
@@ -415,4 +404,16 @@ func readObject(objectPath string) ([]byte, error) {
 	defer zr.Close()
 
 	return io.ReadAll(zr)
+}
+
+func hashFile(path string) (string, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	header := fmt.Sprintf("blob %d\x00", len(content))
+	data := append([]byte(header), content...)
+
+	hash := sha1.Sum(data)
+	return fmt.Sprintf("%x", hash[:]), nil
 }
