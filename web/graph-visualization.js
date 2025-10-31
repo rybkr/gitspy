@@ -5,8 +5,8 @@
 class GraphVisualization {
 	constructor(containerId, options = {}) {
 		this.containerId = containerId;
-		this.onNodeClick = options.onNodeClick || (() => { });
-		this.onTimeFilterChange = options.onTimeFilterChange || (() => { });
+		this.onNodeClick = options.onNodeClick || (() => {});
+		this.onTimeFilterChange = options.onTimeFilterChange || (() => {});
 
 		this.canvas = document.getElementById("canvas");
 		this.container = document.getElementById(containerId);
@@ -57,16 +57,11 @@ class GraphVisualization {
 		this.idToNode = new Map(originalNodes.map((n) => [n.id, n]));
 
 		const { branchNodes, branchLinks } = this.buildBranchData(originalNodes);
-		const allNodes = [...originalNodes, ...branchNodes];
 		const allLinks = [...originalLinks, ...branchLinks];
 
 		// Check if there are actual changes
-		const existingNodeIds = new Set(
-			(this.nodes || []).map((n) => n.id),
-		);
-		const existingBranchIds = new Set(
-			(this.branches || []).map((b) => b.id),
-		);
+		const existingNodeIds = new Set((this.nodes || []).map((n) => n.id));
+		const existingBranchIds = new Set((this.branches || []).map((b) => b.id));
 		const existingLinkKeys = new Set(
 			(this.links || []).map((l) => {
 				const sourceId = typeof l.source === "object" ? l.source.id : l.source;
@@ -129,8 +124,12 @@ class GraphVisualization {
 					// Update properties from new data
 					Object.assign(existing, node);
 					// Restore position/velocity (unless they were invalid)
-					if (typeof savedX === "number" && typeof savedY === "number" &&
-						!isNaN(savedX) && !isNaN(savedY)) {
+					if (
+						typeof savedX === "number" &&
+						typeof savedY === "number" &&
+						!Number.isNaN(savedX) &&
+						!Number.isNaN(savedY)
+					) {
 						existing.x = savedX;
 						existing.y = savedY;
 					} else {
@@ -144,8 +143,12 @@ class GraphVisualization {
 				} else {
 					// For new nodes, ensure they have valid positions
 					let x, y;
-					if (typeof node.x === "number" && typeof node.y === "number" &&
-						!isNaN(node.x) && !isNaN(node.y)) {
+					if (
+						typeof node.x === "number" &&
+						typeof node.y === "number" &&
+						!Number.isNaN(node.x) &&
+						!Number.isNaN(node.y)
+					) {
 						x = node.x;
 						y = node.y;
 					} else {
@@ -175,21 +178,25 @@ class GraphVisualization {
 			const nodeMap = new Map(mergedNodes.map((node) => [node.id, node]));
 
 			// Resolve link source/target to node objects if they're IDs
-			const resolvedLinks = allLinks.map((link) => {
-				const sourceId = typeof link.source === "object" ? link.source.id : link.source;
-				const targetId = typeof link.target === "object" ? link.target.id : link.target;
-				const sourceNode = nodeMap.get(sourceId);
-				const targetNode = nodeMap.get(targetId);
-				// Only include link if both source and target nodes exist
-				if (sourceNode && targetNode) {
-					return {
-						...link,
-						source: sourceNode,
-						target: targetNode,
-					};
-				}
-				return null;
-			}).filter((link) => link !== null);
+			const resolvedLinks = allLinks
+				.map((link) => {
+					const sourceId =
+						typeof link.source === "object" ? link.source.id : link.source;
+					const targetId =
+						typeof link.target === "object" ? link.target.id : link.target;
+					const sourceNode = nodeMap.get(sourceId);
+					const targetNode = nodeMap.get(targetId);
+					// Only include link if both source and target nodes exist
+					if (sourceNode && targetNode) {
+						return {
+							...link,
+							source: sourceNode,
+							target: targetNode,
+						};
+					}
+					return null;
+				})
+				.filter((link) => link !== null);
 
 			// STEP 4: Update DOM with resolved links (same objects as simulation)
 			if (linksChanged) {
@@ -220,7 +227,6 @@ class GraphVisualization {
 		const newNodeIds = new Set(mergedNodes.map((n) => n.id));
 
 		// Find nodes to add and remove
-		const nodesToAdd = mergedNodes.filter((n) => !existingNodeIds.has(n.id));
 		const nodesToRemove = Array.from(existingNodeIds).filter(
 			(id) => !newNodeIds.has(id),
 		);
@@ -244,14 +250,15 @@ class GraphVisualization {
 		}
 
 		// Add new nodes
-		const enterNodes = this.nodeSelection.enter().append("g").attr("class", "node");
+		const enterNodes = this.nodeSelection
+			.enter()
+			.append("g")
+			.attr("class", "node");
 
-		enterNodes
-			.call(this.createDragBehavior())
-			.on("click", (event, d) => {
-				event.stopPropagation();
-				this.onNodeClick(d, event);
-			});
+		enterNodes.call(this.createDragBehavior()).on("click", (event, d) => {
+			event.stopPropagation();
+			this.onNodeClick(d, event);
+		});
 
 		enterNodes
 			.append("circle")
@@ -278,7 +285,9 @@ class GraphVisualization {
 	updateNodes(newNodes) {
 		// Safety check: don't clear the graph if newNodes is empty but we had nodes before
 		if (newNodes.length === 0 && (this.nodes || []).length > 0) {
-			console.warn("Warning: updateNodes called with empty array but graph had nodes. Skipping update.");
+			console.warn(
+				"Warning: updateNodes called with empty array but graph had nodes. Skipping update.",
+			);
 			return;
 		}
 
@@ -311,14 +320,15 @@ class GraphVisualization {
 		}
 
 		// Add new nodes
-		const enterNodes = this.nodeSelection.enter().append("g").attr("class", "node");
+		const enterNodes = this.nodeSelection
+			.enter()
+			.append("g")
+			.attr("class", "node");
 
-		enterNodes
-			.call(this.createDragBehavior())
-			.on("click", (event, d) => {
-				event.stopPropagation();
-				this.onNodeClick(d, event);
-			});
+		enterNodes.call(this.createDragBehavior()).on("click", (event, d) => {
+			event.stopPropagation();
+			this.onNodeClick(d, event);
+		});
 
 		enterNodes
 			.append("circle")
@@ -348,20 +358,41 @@ class GraphVisualization {
 			const centerY = this.canvas.clientHeight / 2;
 			// Try to position near an existing node, or use center
 			const existingNodePositions = (this.simulation?.nodes() || [])
-				.filter((n) => !n.isBranch && typeof n.x === "number" && typeof n.y === "number" && !isNaN(n.x) && !isNaN(n.y))
+				.filter(
+					(n) =>
+						!n.isBranch &&
+						typeof n.x === "number" &&
+						typeof n.y === "number" &&
+						!Number.isNaN(n.x) &&
+						!Number.isNaN(n.y),
+				)
 				.map((n) => ({ x: n.x, y: n.y }))
 				.concat(
 					(this.nodes || [])
-						.filter((n) => typeof n.x === "number" && typeof n.y === "number" && !isNaN(n.x) && !isNaN(n.y))
-						.map((n) => ({ x: n.x, y: n.y }))
+						.filter(
+							(n) =>
+								typeof n.x === "number" &&
+								typeof n.y === "number" &&
+								!Number.isNaN(n.x) &&
+								!Number.isNaN(n.y),
+						)
+						.map((n) => ({ x: n.x, y: n.y })),
 				);
 
 			nodesToAdd.forEach((node) => {
 				// Always ensure valid x/y values
-				if (typeof node.x !== "number" || typeof node.y !== "number" || isNaN(node.x) || isNaN(node.y)) {
+				if (
+					typeof node.x !== "number" ||
+					typeof node.y !== "number" ||
+					Number.isNaN(node.x) ||
+					Number.isNaN(node.y)
+				) {
 					if (existingNodePositions.length > 0) {
 						// Position near a random existing node
-						const ref = existingNodePositions[Math.floor(Math.random() * existingNodePositions.length)];
+						const ref =
+							existingNodePositions[
+								Math.floor(Math.random() * existingNodePositions.length)
+							];
 						node.x = ref.x + (Math.random() - 0.5) * 100;
 						node.y = ref.y + (Math.random() - 0.5) * 100;
 					} else {
@@ -378,10 +409,6 @@ class GraphVisualization {
 	}
 
 	updateBranchesWithMerged(mergedBranchNodes) {
-		// Update DOM using merged branch nodes (same objects as simulation)
-		const existingBranchIds = new Set((this.branches || []).map((b) => b.id));
-		const branchesToAdd = mergedBranchNodes.filter((b) => !existingBranchIds.has(b.id));
-
 		// Ensure container group exists
 		let container = this.mainGroup.select("g.branch-selection");
 		if (container.empty()) {
@@ -445,7 +472,9 @@ class GraphVisualization {
 	updateBranches(newBranchNodes) {
 		// Use stored branches to track what exists, not the DOM selection
 		const existingBranchIds = new Set((this.branches || []).map((b) => b.id));
-		const branchesToAdd = newBranchNodes.filter((b) => !existingBranchIds.has(b.id));
+		const branchesToAdd = newBranchNodes.filter(
+			(b) => !existingBranchIds.has(b.id),
+		);
 
 		// Ensure container group exists
 		let container = this.mainGroup.select("g.branch-selection");
@@ -478,9 +507,12 @@ class GraphVisualization {
 			branchesToAdd.forEach((branch) => {
 				if (typeof branch.x !== "number" || typeof branch.y !== "number") {
 					// Try to find a related commit node for this branch
-					const relatedNode = allAvailableNodes.find((n) =>
-						Array.isArray(n.branches) && n.branches.includes(branch.name) &&
-						typeof n.x === "number" && typeof n.y === "number"
+					const relatedNode = allAvailableNodes.find(
+						(n) =>
+							Array.isArray(n.branches) &&
+							n.branches.includes(branch.name) &&
+							typeof n.x === "number" &&
+							typeof n.y === "number",
 					);
 
 					if (relatedNode) {
@@ -565,7 +597,10 @@ class GraphVisualization {
 		exitLinks.remove();
 
 		// Add new links
-		const enterLinks = this.linkSelection.enter().append("path").attr("class", "link");
+		const enterLinks = this.linkSelection
+			.enter()
+			.append("path")
+			.attr("class", "link");
 
 		enterLinks
 			.style("fill", "none")
@@ -604,7 +639,10 @@ class GraphVisualization {
 		exitLinks.remove();
 
 		// Add new links
-		const enterLinks = this.linkSelection.enter().append("path").attr("class", "link");
+		const enterLinks = this.linkSelection
+			.enter()
+			.append("path")
+			.attr("class", "link");
 
 		enterLinks
 			.style("fill", "none")
@@ -849,20 +887,28 @@ class GraphVisualization {
 
 		if (this.linkSelection) {
 			this.linkSelection.attr("d", (d) => {
-				let sx = typeof d.source === "object" && d.source ? d.source.x :
-					(this.idToNode.get(d.source)?.x);
-				let sy = typeof d.source === "object" && d.source ? d.source.y :
-					(this.idToNode.get(d.source)?.y);
-				let tx = typeof d.target === "object" && d.target ? d.target.x :
-					(this.idToNode.get(d.target)?.x);
-				let ty = typeof d.target === "object" && d.target ? d.target.y :
-					(this.idToNode.get(d.target)?.y);
+				let sx =
+					typeof d.source === "object" && d.source
+						? d.source.x
+						: this.idToNode.get(d.source)?.x;
+				let sy =
+					typeof d.source === "object" && d.source
+						? d.source.y
+						: this.idToNode.get(d.source)?.y;
+				let tx =
+					typeof d.target === "object" && d.target
+						? d.target.x
+						: this.idToNode.get(d.target)?.x;
+				let ty =
+					typeof d.target === "object" && d.target
+						? d.target.y
+						: this.idToNode.get(d.target)?.y;
 
 				// Ensure all values are valid numbers
-				sx = (typeof sx === "number" && !isNaN(sx)) ? sx : 0;
-				sy = (typeof sy === "number" && !isNaN(sy)) ? sy : 0;
-				tx = (typeof tx === "number" && !isNaN(tx)) ? tx : 0;
-				ty = (typeof ty === "number" && !isNaN(ty)) ? ty : 0;
+				sx = typeof sx === "number" && !Number.isNaN(sx) ? sx : 0;
+				sy = typeof sy === "number" && !Number.isNaN(sy) ? sy : 0;
+				tx = typeof tx === "number" && !Number.isNaN(tx) ? tx : 0;
+				ty = typeof ty === "number" && !Number.isNaN(ty) ? ty : 0;
 
 				const dx = tx - sx;
 				const dy = ty - sy;
@@ -882,15 +928,15 @@ class GraphVisualization {
 
 		if (this.nodeSelection) {
 			this.nodeSelection.attr("transform", (d) => {
-				const x = (typeof d.x === "number" && !isNaN(d.x)) ? d.x : 0;
-				const y = (typeof d.y === "number" && !isNaN(d.y)) ? d.y : 0;
+				const x = typeof d.x === "number" && !Number.isNaN(d.x) ? d.x : 0;
+				const y = typeof d.y === "number" && !Number.isNaN(d.y) ? d.y : 0;
 				return `translate(${x},${y})`;
 			});
 		}
 		if (this.branchSelection) {
 			this.branchSelection.attr("transform", (d) => {
-				const x = (typeof d.x === "number" && !isNaN(d.x)) ? d.x : 0;
-				const y = (typeof d.y === "number" && !isNaN(d.y)) ? d.y : 0;
+				const x = typeof d.x === "number" && !Number.isNaN(d.x) ? d.x : 0;
+				const y = typeof d.y === "number" && !Number.isNaN(d.y) ? d.y : 0;
 				return `translate(${x},${y})`;
 			});
 		}
