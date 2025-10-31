@@ -170,11 +170,7 @@ class GraphVisualization {
 				this.updateBranchesWithMerged(mergedBranchNodes);
 			}
 
-			if (linksChanged) {
-				this.updateLinks(allLinks);
-			}
-
-			// STEP 3: Update simulation with merged nodes
+			// STEP 3: Create resolved links (before updating DOM)
 			// Create a map of node IDs to node objects for link resolution
 			const nodeMap = new Map(mergedNodes.map((node) => [node.id, node]));
 
@@ -195,6 +191,12 @@ class GraphVisualization {
 				return null;
 			}).filter((link) => link !== null);
 
+			// STEP 4: Update DOM with resolved links (same objects as simulation)
+			if (linksChanged) {
+				this.updateLinksWithResolved(resolvedLinks);
+			}
+
+			// STEP 5: Update simulation with merged nodes
 			this.simulation.nodes(mergedNodes);
 			this.simulation.force("link").links(resolvedLinks);
 
@@ -536,6 +538,46 @@ class GraphVisualization {
 
 		// Merge enter and update selections
 		this.branchSelection = enterBranches.merge(this.branchSelection);
+	}
+
+	updateLinksWithResolved(resolvedLinks) {
+		// Update DOM using resolved links (same objects as simulation)
+		// Create a key function to identify links
+		const linkKey = (d) => {
+			const sourceId = typeof d.source === "object" ? d.source.id : d.source;
+			const targetId = typeof d.target === "object" ? d.target.id : d.target;
+			return `${sourceId}->${targetId}`;
+		};
+
+		// Ensure container group exists
+		let container = this.mainGroup.select("g.link-selection");
+		if (container.empty()) {
+			container = this.mainGroup.append("g").attr("class", "link-selection");
+		}
+
+		// Update existing selection with resolved links
+		this.linkSelection = container
+			.selectAll("path.link")
+			.data(resolvedLinks, linkKey);
+
+		// Remove links that no longer exist
+		const exitLinks = this.linkSelection.exit();
+		exitLinks.remove();
+
+		// Add new links
+		const enterLinks = this.linkSelection.enter().append("path").attr("class", "link");
+
+		enterLinks
+			.style("fill", "none")
+			.style("stroke", (d) => (d.isBranchLink ? "#58a6ff" : "#30363d"))
+			.style("stroke-dasharray", (d) => (d.isBranchLink ? "4 3" : null))
+			.style("stroke-width", (d) => (d.isBranchLink ? "1.5px" : "2px"))
+			.attr("marker-end", (d) =>
+				d.isBranchLink ? "url(#branch-arrow)" : "url(#commit-arrow)",
+			);
+
+		// Merge enter and update selections
+		this.linkSelection = enterLinks.merge(this.linkSelection);
 	}
 
 	updateLinks(newLinks) {
