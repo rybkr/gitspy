@@ -20,10 +20,10 @@ func NewRepository(path string) (*Repository, error) {
 		return nil, fmt.Errorf("not a git repository: %s", path)
 	}
 
-    absPath, err := filepath.Abs(path)
-    if err != nil {
-        return nil, err
-    }
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
 
 	repo := &Repository{
 		Path:   absPath,
@@ -38,11 +38,11 @@ func NewRepository(path string) (*Repository, error) {
 }
 
 func (r *Repository) load() error {
-    absPath, err := filepath.Abs(r.Name)
-    if err != nil {
-        return err
-    }
-    r.Name = filepath.Base(absPath)
+	absPath, err := filepath.Abs(r.Name)
+	if err != nil {
+		return err
+	}
+	r.Name = filepath.Base(absPath)
 
 	descPath := filepath.Join(r.GitDir, "description")
 	descData, err := os.ReadFile(descPath)
