@@ -133,10 +133,17 @@ class GraphVisualization {
 			const mergedNodes = currentAllNodes.map((node) => {
 				const existing = existingNodesMap.get(node.id);
 				if (existing && typeof existing.x === "number" && typeof existing.y === "number") {
-					// Preserve position from existing node
+					// Preserve position and velocity from existing node
 					return { ...node, x: existing.x, y: existing.y, vx: existing.vx, vy: existing.vy };
 				}
-				return node;
+				// For new nodes, ensure they have x/y set (should be set in updateNodes)
+				// But if somehow they don't, set them now
+				if (typeof node.x !== "number" || typeof node.y !== "number") {
+					const centerX = this.canvas.clientWidth / 2;
+					const centerY = this.canvas.clientHeight / 2;
+					return { ...node, x: centerX + (Math.random() - 0.5) * 100, y: centerY + (Math.random() - 0.5) * 100 };
+				}
+				return { ...node };
 			});
 
 			// Create a map of node IDs to node objects for link resolution
@@ -241,16 +248,27 @@ class GraphVisualization {
 		// Merge enter and update selections
 		this.nodeSelection = enterNodes.merge(this.nodeSelection);
 
-		// Initialize positions for new nodes from existing nodes if available
-		if (nodesToAdd.length > 0 && this.nodes && this.nodes.length > 0) {
+		// Initialize positions for new nodes
+		if (nodesToAdd.length > 0) {
 			const centerX = this.canvas.clientWidth / 2;
 			const centerY = this.canvas.clientHeight / 2;
+			// Try to position near an existing node, or use center
+			const existingNodePositions = (this.nodes || [])
+				.filter((n) => typeof n.x === "number" && typeof n.y === "number")
+				.map((n) => ({ x: n.x, y: n.y }));
+
 			nodesToAdd.forEach((node) => {
-				if (typeof node.x !== "number") {
-					node.x = centerX + (Math.random() - 0.5) * 100;
-				}
-				if (typeof node.y !== "number") {
-					node.y = centerY + (Math.random() - 0.5) * 100;
+				if (typeof node.x !== "number" || typeof node.y !== "number") {
+					if (existingNodePositions.length > 0) {
+						// Position near a random existing node
+						const ref = existingNodePositions[Math.floor(Math.random() * existingNodePositions.length)];
+						node.x = ref.x + (Math.random() - 0.5) * 100;
+						node.y = ref.y + (Math.random() - 0.5) * 100;
+					} else {
+						// Use center if no existing nodes
+						node.x = centerX + (Math.random() - 0.5) * 100;
+						node.y = centerY + (Math.random() - 0.5) * 100;
+					}
 				}
 			});
 		}
@@ -259,6 +277,7 @@ class GraphVisualization {
 	updateBranches(newBranchNodes) {
 		// Use stored branches to track what exists, not the DOM selection
 		const existingBranchIds = new Set((this.branches || []).map((b) => b.id));
+		const branchesToAdd = newBranchNodes.filter((b) => !existingBranchIds.has(b.id));
 
 		// Ensure container group exists
 		let container = this.mainGroup.select("g.branch-selection");
@@ -274,6 +293,39 @@ class GraphVisualization {
 		// Remove branches that no longer exist
 		const exitBranches = this.branchSelection.exit();
 		exitBranches.remove();
+
+		// Initialize positions for new branch nodes BEFORE creating DOM elements
+		// This ensures positions are available when nodes are added to simulation
+		if (branchesToAdd.length > 0) {
+			// Get current nodes from the update context - these should include newly added nodes
+			// We need to look in the simulation nodes or the originalNodes passed to update()
+			// Since we don't have direct access, we'll check simulation first, then stored nodes
+			const allAvailableNodes = (this.simulation?.nodes() || [])
+				.filter((n) => !n.isBranch)
+				.concat(this.nodes || []);
+
+			const centerX = this.canvas.clientWidth / 2;
+			const centerY = this.canvas.clientHeight / 2;
+
+			branchesToAdd.forEach((branch) => {
+				if (typeof branch.x !== "number" || typeof branch.y !== "number") {
+					// Try to find a related commit node for this branch
+					const relatedNode = allAvailableNodes.find((n) =>
+						Array.isArray(n.branches) && n.branches.includes(branch.name) &&
+						typeof n.x === "number" && typeof n.y === "number"
+					);
+
+					if (relatedNode) {
+						branch.x = relatedNode.x + 12;
+						branch.y = relatedNode.y - 12;
+					} else {
+						// Use center if no related node found
+						branch.x = centerX + (Math.random() - 0.5) * 100;
+						branch.y = centerY + (Math.random() - 0.5) * 100;
+					}
+				}
+			});
+		}
 
 		// Add new branches
 		const enterBranches = this.branchSelection
