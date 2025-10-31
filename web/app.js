@@ -67,28 +67,37 @@ class GitVistaApp {
 		try {
 			const graphData = await this.api.fetchGraph();
 
-			this.timeline = new TimelineController({
-				onTimeFilterChange: () => {
-					if (this.graph) {
-						this.graph.applyTimeFilter(this.timeline.getTimeRange());
-					}
-				},
-			});
+			if (!this.graph) {
+				// First load - initialize everything
+				this.timeline = new TimelineController({
+					onTimeFilterChange: () => {
+						if (this.graph) {
+							this.graph.applyTimeFilter(this.timeline.getTimeRange());
+						}
+					},
+				});
 
-			this.graph = new GraphVisualization("graph", {
-				onNodeClick: (data, event) => {
-					this.commitPopover.show(data, event);
-				},
-				onTimeFilterChange: () => {
-					if (this.graph && this.timeline) {
-						this.graph.applyTimeFilter(this.timeline.getTimeRange());
-					}
-				},
-			});
+				this.graph = new GraphVisualization("graph", {
+					onNodeClick: (data, event) => {
+						this.commitPopover.show(data, event);
+					},
+					onTimeFilterChange: () => {
+						if (this.graph && this.timeline) {
+							this.graph.applyTimeFilter(this.timeline.getTimeRange());
+						}
+					},
+				});
 
-			this.graph.initialize(graphData);
-			if (this.timeline) {
-				this.timeline.initialize(graphData.nodes || []);
+				this.graph.initialize(graphData);
+				if (this.timeline) {
+					this.timeline.initialize(graphData.nodes || []);
+				}
+			} else {
+				// Subsequent loads - update incrementally
+				this.graph.update(graphData);
+				if (this.timeline) {
+					this.timeline.initialize(graphData.nodes || []);
+				}
 			}
 		} catch (error) {
 			console.error("Error loading graph:", error);
