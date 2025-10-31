@@ -1,7 +1,8 @@
 //
 // Manages the commit popover that displays commit details on click
 //
-export class CommitPopover {
+// biome-ignore lint/correctness/noUnusedVariables: CommitPopover used in a different file
+class CommitPopover {
 	constructor() {
 		this.element = this.createPopover();
 		this.setupEventListeners();

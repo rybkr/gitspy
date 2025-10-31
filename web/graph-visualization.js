@@ -1,7 +1,8 @@
 //
 // Manages the D3.js graph visualization with commits, branches, and links
 //
-export class GraphVisualization {
+// biome-ignore lint/correctness/noUnusedVariables: GraphVisualization used in a different file
+class GraphVisualization {
 	constructor(containerId, options = {}) {
 		this.containerId = containerId;
 		this.onNodeClick = options.onNodeClick || (() => {});

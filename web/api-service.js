@@ -1,7 +1,8 @@
 //
 // Centralized API service for fetching data from the backend
 //
-export class ApiService {
+// biome-ignore lint/correctness/noUnusedVariables: ApiService used in a different file
+class ApiService {
 	constructor(baseUrl = "") {
 		this.baseUrl = baseUrl;
 	}

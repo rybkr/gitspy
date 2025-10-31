@@ -1,7 +1,8 @@
 //
 // Manages sidebar resize, toggle, and persistence
 //
-export class SidebarController {
+// biome-ignore lint/correctness/noUnusedVariables: SidebarController used in a different file
+class SidebarController {
 	constructor() {
 		this.sidebar = document.getElementById("sidebar");
 		this.resizer = document.getElementById("sidebar-resizer");

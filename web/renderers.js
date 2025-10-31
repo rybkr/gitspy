@@ -1,7 +1,8 @@
 //
 // Utility functions and classes for rendering various UI components
 //
-export class StatusRenderer {
+// biome-ignore lint/correctness/noUnusedVariables: StatusRenderer used in a different file
+class StatusRenderer {
 	constructor() {
 		this.stagedList = document.querySelector(".file-list.staged");
 		this.dirtyList = document.querySelector(".file-list.dirty");
@@ -138,7 +139,8 @@ export class StatusRenderer {
 	}
 }
 
-export class ConfigRenderer {
+// biome-ignore lint/correctness/noUnusedVariables: ConfigRenderer used in a different file
+class ConfigRenderer {
 	constructor() {
 		this.container = document.getElementById("config-list");
 	}

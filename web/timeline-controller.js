@@ -1,6 +1,7 @@
 //
 // Manages the timeline range filter with draggable handles and playback
 //
+// biome-ignore lint/correctness/noUnusedVariables: TimelineController used in a different file
 class TimelineController {
 	constructor(options = {}) {
 		this.onTimeFilterChange = options.onTimeFilterChange || (() => {});
