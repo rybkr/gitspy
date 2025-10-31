@@ -1,7 +1,7 @@
 //
 // Manages the commit popover that displays commit details on click
 //
-class CommitPopover {
+export class CommitPopover {
 	constructor() {
 		this.element = this.createPopover();
 		this.setupEventListeners();

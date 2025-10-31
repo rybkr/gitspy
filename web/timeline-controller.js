@@ -9,8 +9,8 @@ class TimelineController {
 		this.startTs = null;
 		this.endTs = null;
 		this.dragging = null;
-		this.scaleX = (t) => 0;
-		this.invScale = (x) => 0;
+		this.scaleX = (_t) => 0;
+		this.invScale = (_x) => 0;
 		this.playing = false;
 		this.rafId = null;
 		this.tsList = [];
@@ -212,7 +212,7 @@ class TimelineController {
 			if (!list.length) return;
 
 			const findIndex = (ts) => {
-				let i = list.findIndex((v) => v >= ts);
+				const i = list.findIndex((v) => v >= ts);
 				return i === -1 ? list.length - 1 : i;
 			};
 
@@ -287,7 +287,7 @@ class TimelineController {
 			prevTs = ts;
 			const total = this.maxTs - this.minTs || 1;
 			const delta = (dt / this.playbackDuration) * total;
-			let nextEnd = (this.endTs ?? this.minTs) + delta;
+			const nextEnd = (this.endTs ?? this.minTs) + delta;
 
 			if (nextEnd >= this.maxTs) {
 				this.endTs = this.maxTs;
@@ -342,7 +342,7 @@ class TimelineController {
 	formatDate(ts) {
 		try {
 			return new Date(ts).toLocaleString();
-		} catch (e) {
+		} catch (_e) {
 			return String(ts);
 		}
 	}

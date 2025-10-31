@@ -1,7 +1,7 @@
 //
 // Manages sidebar resize, toggle, and persistence
 //
-class SidebarController {
+export class SidebarController {
 	constructor() {
 		this.sidebar = document.getElementById("sidebar");
 		this.resizer = document.getElementById("sidebar-resizer");

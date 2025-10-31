@@ -1,7 +1,7 @@
 //
 // Centralized API service for fetching data from the backend
 //
-class ApiService {
+export class ApiService {
 	constructor(baseUrl = "") {
 		this.baseUrl = baseUrl;
 	}

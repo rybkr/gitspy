@@ -1,7 +1,7 @@
 //
 // Manages the D3.js graph visualization with commits, branches, and links
 //
-class GraphVisualization {
+export class GraphVisualization {
 	constructor(containerId, options = {}) {
 		this.containerId = containerId;
 		this.onNodeClick = options.onNodeClick || (() => {});
@@ -209,7 +209,7 @@ class GraphVisualization {
 				);
 			});
 
-		this.branchSelection.each(function (d) {
+		this.branchSelection.each((d) => {
 			d._w = Math.max(48, d.name.length * 7 + 18);
 			d._h = 20;
 		});
@@ -279,8 +279,8 @@ class GraphVisualization {
 						? d.target.y
 						: this.idToNode.get(d.target)?.y) || 0;
 
-				let dx = tx - sx;
-				let dy = ty - sy;
+				const dx = tx - sx;
+				const dy = ty - sy;
 				const dist = Math.sqrt(dx * dx + dy * dy) || 1;
 
 				const targetOffset = NODE_R + ARROW_PAD;

@@ -1,7 +1,7 @@
 //
 // Utility functions and classes for rendering various UI components
 //
-class StatusRenderer {
+export class StatusRenderer {
 	constructor() {
 		this.stagedList = document.querySelector(".file-list.staged");
 		this.dirtyList = document.querySelector(".file-list.dirty");
@@ -138,7 +138,7 @@ class StatusRenderer {
 	}
 }
 
-class ConfigRenderer {
+export class ConfigRenderer {
 	constructor() {
 		this.container = document.getElementById("config-list");
 	}
@@ -151,7 +151,7 @@ class ConfigRenderer {
 			const parsed = this.parseIniIfNeeded(normalized);
 			const html = this.buildHtml(parsed);
 			this.container.innerHTML = html;
-		} catch (err) {
+		} catch (_err) {
 			this.container.innerHTML =
 				'<div class="kv-item"><div class="kv-key">Error</div><div class="kv-value">Failed to load config</div></div>';
 		}
@@ -202,8 +202,12 @@ class ConfigRenderer {
 				const key = kv[1];
 				const val = kv[2];
 				const target = section
-					? result[section] || (result[section] = {})
-					: result._ || (result._ = {});
+					? result[section]
+						? result[section]
+						: {}
+					: result._
+						? result._
+						: {};
 
 				if (key in target) {
 					const prev = target[key];
