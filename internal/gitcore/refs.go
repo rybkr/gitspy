@@ -3,9 +3,30 @@ package gitcore
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 )
+
+func (r *Repository) resolveRef(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+
+	content := strings.TrimSpace(string(data))
+
+	if strings.HasPrefix(content, "ref: ") {
+		refName := strings.TrimPrefix(content, "ref: ")
+		newPath := filepath.Join(r.Path, ".git", refName)
+		return r.resolveRef(newPath)
+	}
+
+	if len(content) == 40 {
+		return content, nil
+	}
+	return "", fmt.Errorf("invalid ref: %q", content)
+}
 
 func (r *Repository) getHeadTree() (map[string]GitHash, error) {
 	headPath := filepath.Join(r.Path, ".git", "HEAD")
@@ -42,7 +63,7 @@ func (r *Repository) getHeadTree() (map[string]GitHash, error) {
 }
 
 func (r *Repository) readTreeRecursive(treeHash GitHash, prefix string) (map[string]GitHash, error) {
-    result := make(map[string]GitHash)
+	result := make(map[string]GitHash)
 
 	objectPath := filepath.Join(r.Path, ".git", "objects", string(treeHash[:2]), string(treeHash[2:]))
 	content, err := r.readObject(objectPath)
@@ -56,7 +77,7 @@ func (r *Repository) readTreeRecursive(treeHash GitHash, prefix string) (map[str
 	}
 	content = content[nullIdx+1:]
 
-    for len(content) > 0 {
+	for len(content) > 0 {
 		spaceIdx := bytes.IndexByte(content, ' ')
 		if spaceIdx == -1 {
 			break
@@ -71,26 +92,26 @@ func (r *Repository) readTreeRecursive(treeHash GitHash, prefix string) (map[str
 		name := string(content[:nullIdx])
 		content = content[nullIdx+1:]
 
-        hash, err := NewHash(content[:20])
+		hash, err := NewGitHash(content[:20])
         if err != nil {
-            return nil, err
+            return nil, fmt.Errorf("parsing hash: %w", err)
         }
-        content = content[20:]
-        
-        fullPath := filepath.ToSlash(filepath.Join(prefix, name))
+		content = content[20:]
 
-        if mode == "40000" {
-            subTree, err := r.readTreeRecursive(hash, fullPath)
-            if err != nil {
-                return nil, err
-            }
-            for subPath, subHash := range subTree {
-                result[subPath] = subHash
-            }
-        } else {
-            result[fullPath] = hash
-        }
-    }
+		fullPath := filepath.ToSlash(filepath.Join(prefix, name))
 
-    return result, nil
+		if mode == "40000" {
+			subTree, err := r.readTreeRecursive(hash, fullPath)
+			if err != nil {
+				return nil, err
+			}
+			for subPath, subHash := range subTree {
+				result[subPath] = subHash
+			}
+		} else {
+			result[fullPath] = hash
+		}
+	}
+
+	return result, nil
 }
