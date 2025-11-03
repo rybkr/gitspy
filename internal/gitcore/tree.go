@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-func (r *Repository) getHEADTree() (map[string]GitHash, error) {
+func (r *Repository) getHeadTree() (map[string]GitHash, error) {
 	headPath := filepath.Join(r.Path, ".git", "HEAD")
 	commitHash, err := r.resolveRef(headPath)
 	if err != nil {

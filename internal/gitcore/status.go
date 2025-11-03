@@ -29,7 +29,7 @@ func (r *Repository) GetStatus() (*Status, error) {
 
 	statusEntries := make([]StatusEntry, 0)
 
-	headTree, err := r.getHEADTree()
+	headTree, err := r.getHeadTree()
 	if err != nil {
 		return nil, err
 	}
