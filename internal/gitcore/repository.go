@@ -2,7 +2,6 @@ package gitcore
 
 import (
 	"compress/zlib"
-	"encoding/hex"
     "fmt"
 	"io"
 	"os"
@@ -34,8 +33,8 @@ func (r *Repository) resolveRef(path string) (GitHash, error) {
 		return r.resolveRef(newPath)
 	}
 
-	if byteArr, err := hex.DecodeString(content); len(content) == 40 && err == nil {
-		return GitHash(byteArr), nil
+    if len(content) == 40 {
+		return GitHash(content), nil
 	}
 	return "", fmt.Errorf("invalid ref: %q", content)
 }

@@ -21,6 +21,10 @@ type IndexEntry struct {
 	StatInfo FileStat
 }
 
+func (e *IndexEntry) String() string {
+    return fmt.Sprintf("%o %s 0 %s", e.StatInfo.Mode, e.StatInfo.Hash, e.Path)
+}
+
 type FileStat struct {
 	MTime           time.Time // time.Time is constructed from two
 	CTime           time.Time // uint32s via time.Unix(sec, nano)
@@ -33,29 +37,26 @@ type FileStat struct {
 }
 
 func (r *Repository) GetIndex() (*Index, error) {
-	index := &Index{
-		Entries: []IndexEntry{},
-	}
-
 	indexEntries, version, err := r.parseIndex()
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse index: %w", err)
 	}
-	index.Version = version
-	index.Entries = indexEntries
 
-	return index, nil
+	return &Index{
+		Version: version,
+		Entries: indexEntries,
+	}, nil
 }
 
-// GitStatusSB imitates 'git status -sb', mostly for debugging purposes.
-func (r *Repository) GitStatusSB() {
-	index, err := r.GetIndex()
-	if err != nil {
-		log.Fatal(err)
-	}
-	for _, entry := range index.Entries {
-		fmt.Println(entry.String())
-	}
+// PrintIndex imitates 'git ls-files -s', mostly for debugging purposes.
+func (r *Repository) PrintIndex() {
+    index, err := r.GetIndex()
+    if err != nil {
+        log.Fatal(err)
+    }
+    for _, entry := range index.Entries {
+        fmt.Println(entry.String())
+    }
 }
 
 // See: https://git-scm.com/docs/index-format#_the_git_index_file_has_the_following_format
@@ -176,13 +177,9 @@ func parseFileStat(file *os.File) (FileStat, error) {
 
 	var hash [20]byte
 	binary.Read(buf, binary.BigEndian, &hash)
-    stat.Hash, _ = NewHash(hash[:])
+	stat.Hash, _ = NewHash(hash[:])
 
 	binary.Read(buf, binary.BigEndian, &stat.Flags)
 
 	return stat, nil
-}
-
-func (e *IndexEntry) String() string {
-	return fmt.Sprintf("%s %s", "??", e.Path)
 }
