@@ -8,7 +8,47 @@ import (
 	"strings"
 )
 
-func (r *Repository) resolveRef(path string) (string, error) {
+func (r *Repository) getAllRefs() ([]GitHash, error) {
+    var refs []GitHash
+
+    headPath := filepath.Join(r.Path, ".git", "HEAD")
+    headRef, err := r.resolveRef(headPath)
+    if err == nil && headRef != "" {
+		refs = append(refs, headRef)
+	}
+
+    refsPath := filepath.Join(r.Path, ".git", "refs", "heads")
+	err = filepath.Walk(refsPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !info.IsDir() {
+			ref, err := r.resolveRef(path)
+			if err == nil && ref != "" {
+				refs = append(refs, ref)
+			}
+		}
+		return nil
+	})
+
+    tagsPath := filepath.Join(r.Path, ".git", "tags")
+	filepath.Walk(tagsPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !info.IsDir() {
+			ref, err := r.resolveRef(path)
+			if err == nil && ref != "" {
+				refs = append(refs, ref)
+			}
+		}
+		return nil
+	})
+
+    return refs, nil
+}
+
+func (r *Repository) resolveRef(path string) (GitHash, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
@@ -23,7 +63,7 @@ func (r *Repository) resolveRef(path string) (string, error) {
 	}
 
 	if len(content) == 40 {
-		return content, nil
+		return GitHash(content), nil
 	}
 	return "", fmt.Errorf("invalid ref: %q", content)
 }
