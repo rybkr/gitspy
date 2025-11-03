@@ -2,25 +2,21 @@ package main
 
 import (
 	"flag"
-    "github.com/rybkr/gitvista/internal/gitcore"
+	"github.com/rybkr/gitvista/internal/gitcore"
+	"github.com/rybkr/gitvista/internal/server"
 	"log"
 )
 
 func main() {
-    repoPath := flag.String("repo", ".", "Path to git repository")
-    showStatus := flag.Bool("status", false, "Imitate 'git status -s'")
-    showIndex  := flag.Bool("index", false, "Imitate 'git ls-files -s'")
+	repoPath := flag.String("repo", ".", "Path to git repository")
+    port := flag.String("port", "8080", "Port on which to run localhost server")
 	flag.Parse()
 
-    repo, err := gitcore.NewRepository(*repoPath)
-    if err != nil {
-        log.Fatal(err)
-    }
+	repo, err := gitcore.NewRepository(*repoPath)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-    if *showIndex {
-        repo.PrintIndex()
-    }
-    if *showStatus {
-        repo.PrintStatus()
-    }
+    serv := server.NewServer(repo, *port)
+    serv.Start()
 }

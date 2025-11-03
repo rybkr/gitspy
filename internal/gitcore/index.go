@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -85,30 +84,6 @@ func (r *Repository) GetStatus() (*Status, error) {
 	return &Status{
 		Entries: statusEntries,
 	}, nil
-}
-
-// PrintIndex imitates 'git ls-files -s', mostly for debugging purposes.
-func (r *Repository) PrintIndex() {
-	index, err := r.GetIndex()
-	if err != nil {
-		log.Fatal(err)
-	}
-	for _, entry := range index.Entries {
-		fmt.Println(entry.String())
-	}
-}
-
-// PrintStatus imitates 'git status -s', mostly for debugging purposes.
-func (r *Repository) PrintStatus() {
-	status, err := r.GetStatus()
-	if err != nil {
-		log.Fatal(err)
-	}
-	for _, entry := range status.Entries {
-		if entry.IndexStatus != "" || entry.WorktreeStatus != "" {
-			fmt.Println(entry.String())
-		}
-	}
 }
 
 // See: https://git-scm.com/docs/index-format#_the_git_index_file_has_the_following_format
