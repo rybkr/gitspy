@@ -13,36 +13,6 @@ import (
 	"time"
 )
 
-type Commit struct {
-	Hash     string   `json:"hash"`
-	Message  string   `json:"message"`
-	Author   string   `json:"author"`
-	Date     string   `json:"date"`
-	Parents  []string `json:"parents"`
-	Branches []string `json:"branches,omitempty"`
-}
-
-type Graph struct {
-	Nodes []GraphNode `json:"nodes"`
-	Links []GraphLink `json:"links"`
-}
-
-type GraphNode struct {
-	ID       string   `json:"id"`
-	Hash     string   `json:"hash"`
-	Message  string   `json:"message"`
-	Author   string   `json:"author"`
-	Date     string   `json:"date"`
-	Parents  []string `json:"parents"`
-	Branches []string `json:"branches,omitempty"`
-	Type     string   `json:"type"`
-}
-
-type GraphLink struct {
-	Source string `json:"source"`
-	Target string `json:"target"`
-}
-
 func (r *Repository) GetGraph() (*Graph, error) {
 	commits, err := r.parseCommits()
 	if err != nil {
