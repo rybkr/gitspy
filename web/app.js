@@ -10,7 +10,6 @@ class GitVistaApp {
 		this.timeline = null;
 		this.graph = null;
 		this.statusRenderer = new StatusRenderer();
-		this.configRenderer = new ConfigRenderer();
 		this.sidebar = new SidebarController();
 	}
 
@@ -18,7 +17,6 @@ class GitVistaApp {
 		try {
 			// Load initial data via HTTP
 			await this.loadRepositoryInfo();
-			await this.loadConfig();
 			await this.loadStatus();
 			await this.loadGraph();
 
@@ -33,11 +31,6 @@ class GitVistaApp {
 		// Handle info updates
 		this.ws.on("info", (data) => {
 			this.handleInfoUpdate(data);
-		});
-
-		// Handle config updates
-		this.ws.on("config", (data) => {
-			this.handleConfigUpdate(data);
 		});
 
 		// Handle status updates
@@ -72,20 +65,6 @@ class GitVistaApp {
 			if (pathEl) pathEl.textContent = info.path;
 		} catch (error) {
 			console.error("Error loading repository info:", error);
-		}
-	}
-
-	async loadConfig() {
-		try {
-			const config = await this.api.fetchConfig();
-			this.configRenderer.render(config);
-		} catch (error) {
-			console.error("Error loading config:", error);
-			const container = document.getElementById("config-list");
-			if (container) {
-				container.innerHTML =
-					'<div class="kv-item"><div class="kv-key">Error</div><div class="kv-value">Failed to load config</div></div>';
-			}
 		}
 	}
 
@@ -148,10 +127,6 @@ class GitVistaApp {
 		const pathEl = document.getElementById("repo-path");
 		if (nameEl && data) nameEl.textContent = data.name || "";
 		if (pathEl && data) pathEl.textContent = data.path || "";
-	}
-
-	handleConfigUpdate(data) {
-		this.configRenderer.render(data);
 	}
 
 	handleStatusUpdate(data) {

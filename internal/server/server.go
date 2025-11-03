@@ -3,8 +3,9 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"github.com/gorilla/websocket"
 	"github.com/rybkr/gitvista/internal/gitcore"
-    "sync"
+	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -35,7 +36,6 @@ type MessageType string
 
 const (
 	MessageTypeInfo   MessageType = "info"
-	MessageTypeConfig MessageType = "config"
 	MessageTypeGraph  MessageType = "graph"
 	MessageTypeStatus MessageType = "status"
 )
@@ -46,7 +46,7 @@ type UpdateMessage struct {
 }
 
 type Server struct {
-	repo *git.Repository
+	repo *gitcore.Repository
 	port string
 
 	// Cache and its lock
@@ -55,7 +55,6 @@ type Server struct {
 	mu     sync.RWMutex
 	cached struct {
 		info   *gitcore.Repository
-		config interface{}
 		graph  interface{}
 		status interface{}
 	}
@@ -76,7 +75,7 @@ type Server struct {
 	wg     sync.WaitGroup
 }
 
-func NewServer(repo *git.Repository, port string) *Server {
+func NewServer(repo *gitcore.Repository, port string) *Server {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Server{
 		repo:      repo,
@@ -96,7 +95,6 @@ func (s *Server) Start() error {
 	// REST API endpoints are for initial page load and backward compatibility.
 	// Clients should prefer WebSocket for live updates.
 	http.HandleFunc("/api/info", s.handleInfo)
-	http.HandleFunc("/api/config", s.handleConfig)
 	http.HandleFunc("/api/graph", s.handleGraph)
 	http.HandleFunc("/api/status", s.handleStatus)
 
@@ -132,13 +130,6 @@ func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
 	defer s.mu.RUnlock()
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.cached.info)
-}
-
-func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.cached.config)
 }
 
 func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
@@ -200,13 +191,13 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) clientReadPump(conn *websocket.Conn, done chan struct{}) {
 	defer func() {
-        // Recover panics that occur when reading from a closed connection.
-        // This can happen if the write pump closes the connection while we're reading.
-        if r := recover(); r != nil {
+		// Recover panics that occur when reading from a closed connection.
+		// This can happen if the write pump closes the connection while we're reading.
+		if r := recover(); r != nil {
 			log.Printf("Recovered from panic in clientReadPump: %v", r)
 		}
 		close(done)
-    }()
+	}()
 
 	for {
 		select {
@@ -266,7 +257,6 @@ func (s *Server) sendInitialState(conn *websocket.Conn) {
 
 	messages := []UpdateMessage{
 		{Type: string(MessageTypeInfo), Data: s.cached.info},
-		{Type: string(MessageTypeConfig), Data: s.cached.config},
 		{Type: string(MessageTypeGraph), Data: s.cached.graph},
 		{Type: string(MessageTypeStatus), Data: s.cached.status},
 	}

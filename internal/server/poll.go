@@ -45,13 +45,8 @@ func (s *Server) pollRepo() {
 
 func (s *Server) pollOnce() {
 	info := s.repo
-	config, err := s.repo.GetConfig()
-	if err != nil {
-		log.Printf("Error fetching config: %v", err)
-		// Continue with nil config
-	}
 
-	graph, err := s.repo.GetGraph()
+	graph, err := domain.BuildGraph(s.repo) 
 	if err != nil {
 		log.Printf("Error fetching graph: %v", err)
 		// Continue with nil graph
@@ -67,7 +62,6 @@ func (s *Server) pollOnce() {
 	// We use a read lock for comparison to allow concurrent reads by HTTP handlers
 	s.mu.RLock()
 	infoChanged := !reflect.DeepEqual(s.cached.info, info)
-	configChanged := !reflect.DeepEqual(s.cached.config, config)
 	graphChanged := !s.graphEqual(s.cached.graph, graph)
 	statusChanged := !reflect.DeepEqual(s.cached.status, status)
 	s.mu.RUnlock()
@@ -78,14 +72,6 @@ func (s *Server) pollOnce() {
 		s.mu.Unlock()
 		s.broadcastUpdate(MessageTypeInfo, info)
 		log.Println("Repository info changed, broadcasting update")
-	}
-
-	if configChanged {
-		s.mu.Lock()
-		s.cached.config = config
-		s.mu.Unlock()
-		s.broadcastUpdate(MessageTypeConfig, config)
-		log.Println("Repository config changed, broadcasting update")
 	}
 
 	if graphChanged {
