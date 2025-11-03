@@ -1,6 +1,13 @@
 package gitcore
 
 import (
+	"bytes"
+	"encoding/binary"
+	"fmt"
+	"io"
+	"log"
+	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -15,14 +22,14 @@ type IndexEntry struct {
 }
 
 type FileStat struct {
-	MTime           time.Time // time.Time is constructed from two 
+	MTime           time.Time // time.Time is constructed from two
 	CTime           time.Time // uint32s via time.Unix(sec, nano)
 	Device, Inode   uint32
 	Mode            uint32
 	UserID, GroupID uint32
 	Size            uint32
-    Hash            [20]byte
-    Flags           uint16
+	Hash            GitHash
+	Flags           uint16
 }
 
 func (r *Repository) GetIndex() (*Index, error) {
@@ -34,6 +41,21 @@ func (r *Repository) GetIndex() (*Index, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse index: %w", err)
 	}
+	index.Version = version
+	index.Entries = indexEntries
+
+	return index, nil
+}
+
+// GitStatusSB imitates 'git status -sb', mostly for debugging purposes.
+func (r *Repository) GitStatusSB() {
+	index, err := r.GetIndex()
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, entry := range index.Entries {
+		fmt.Println(entry.String())
+	}
 }
 
 // See: https://git-scm.com/docs/index-format#_the_git_index_file_has_the_following_format
@@ -43,9 +65,9 @@ func (r *Repository) parseIndex() ([]IndexEntry, int, error) {
 	index, err := os.Open(indexPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return []IndexEntry{}, nil
+			return []IndexEntry{}, 0, nil
 		}
-		return nil, err
+		return nil, 0, err
 	}
 	defer index.Close()
 
@@ -55,24 +77,24 @@ func (r *Repository) parseIndex() ([]IndexEntry, int, error) {
 	//  32-bit number of index entries
 	header := make([]byte, 12)
 	if _, err := io.ReadFull(index, header); err != nil {
-		return nil, fmt.Errorf("failed to read index header: %w", err)
+		return nil, 0, fmt.Errorf("failed to read index header: %w", err)
 	}
 	if string(header[0:4]) != "DIRC" {
-		return nil, fmt.Errorf("invalid index file signature: %s", string(header[0:4]))
+		return nil, 0, fmt.Errorf("invalid index file signature: %s", string(header[0:4]))
 	}
 
 	version := binary.BigEndian.Uint32(header[4:8])
 	if version != 2 && version != 3 && version != 4 {
-		return nil, fmt.Errorf("unsupported index version: %d", version)
+		return nil, 0, fmt.Errorf("unsupported index version: %d", version)
 	}
 
 	numEntries := binary.BigEndian.Uint32(header[8:12])
 	entries := make([]IndexEntry, 0, numEntries)
 
 	for i := uint32(0); i < numEntries; i++ {
-        entry, err := parseIndexEntry(index) // TODO(rybkr): Pass version number for handling
+		entry, err := parseIndexEntry(index) // TODO(rybkr): Pass version number for handling
 		if err != nil {
-			return nil, fmt.Errorf("failed to read entry %d: %w", i, err)
+			return nil, 0, fmt.Errorf("failed to read entry %d: %w", i, err)
 			// One bad read can corrupt every subsequent read, hence early return
 		}
 		entries = append(entries, entry)
@@ -84,22 +106,22 @@ func (r *Repository) parseIndex() ([]IndexEntry, int, error) {
 	// Finally, there is a checksum of all file content
 	// TODO(rybkr): Consider validating the checksum for integrity
 
-	return entries, version, nil
+	return entries, int(version), nil
 }
 
 // See: https://git-scm.com/docs/index-format#_index_entry
 func parseIndexEntry(file *os.File) (IndexEntry, error) {
 	var entry IndexEntry
 
-    statInfo, err := parseFileStat(file)
-    if err != nil {
-        return entry, fmt.Errorf("parsing file stat: %w", err)
-    }
-    entry.StatInfo = statInfo
+	statInfo, err := parseFileStat(file)
+	if err != nil {
+		return entry, fmt.Errorf("parsing file stat: %w", err)
+	}
+	entry.StatInfo = statInfo
 
-    pathLen := int(entry.StatInfo.Flags & 0xFFF)
-    pathBuf := make([]byte, pathLen)
-	n, err = io.ReadFull(file, pathBuf)
+	pathLen := int(entry.StatInfo.Flags & 0xFFF)
+	pathBuf := make([]byte, pathLen)
+	n, err := io.ReadFull(file, pathBuf)
 	if err != nil {
 		return entry, fmt.Errorf("reading path of length %d (read %d): %w", pathLen, n, err)
 	}
@@ -128,7 +150,7 @@ func parseIndexEntry(file *os.File) (IndexEntry, error) {
 }
 
 func parseFileStat(file *os.File) (FileStat, error) {
-    var stat FileStat
+	var stat FileStat
 
 	fixedData := make([]byte, 62) // 62 == sizeof(FileStat)
 	n, err := io.ReadFull(file, fixedData)
@@ -142,17 +164,25 @@ func parseFileStat(file *os.File) (FileStat, error) {
 	binary.Read(buf, binary.BigEndian, &cTimeNano)
 	binary.Read(buf, binary.BigEndian, &mTimeSec)
 	binary.Read(buf, binary.BigEndian, &mTimeNano)
-	stat.CTime = time.Unix(cTimeSec, cTimeNano)
-	stat.MTime = time.Unix(mTimeSec, mTimeNano)
+	stat.CTime = time.Unix(int64(cTimeSec), int64(cTimeNano))
+	stat.MTime = time.Unix(int64(mTimeSec), int64(mTimeNano))
 
-	binary.Read(buf, binary.BigEndian, &entry.Device)
-	binary.Read(buf, binary.BigEndian, &entry.Inode)
-	binary.Read(buf, binary.BigEndian, &entry.Mode)
-	binary.Read(buf, binary.BigEndian, &entry.UserID)
-	binary.Read(buf, binary.BigEndian, &entry.GroupID)
-	binary.Read(buf, binary.BigEndian, &entry.Size)
-	binary.Read(buf, binary.BigEndian, &entry.Hash)
-	binary.Read(buf, binary.BigEndian, &entry.Flags)
+	binary.Read(buf, binary.BigEndian, &stat.Device)
+	binary.Read(buf, binary.BigEndian, &stat.Inode)
+	binary.Read(buf, binary.BigEndian, &stat.Mode)
+	binary.Read(buf, binary.BigEndian, &stat.UserID)
+	binary.Read(buf, binary.BigEndian, &stat.GroupID)
+	binary.Read(buf, binary.BigEndian, &stat.Size)
 
-    return stat, nil
+	var hash [20]byte
+	binary.Read(buf, binary.BigEndian, &hash)
+    stat.Hash, _ = NewHash(hash[:])
+
+	binary.Read(buf, binary.BigEndian, &stat.Flags)
+
+	return stat, nil
+}
+
+func (e *IndexEntry) String() string {
+	return fmt.Sprintf("%s %s", "??", e.Path)
 }

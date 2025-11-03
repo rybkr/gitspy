@@ -2,24 +2,24 @@ package server
 
 import (
 	"encoding/json"
-	"github.com/rybkr/gitvista/internal/git"
+	"github.com/rybkr/gitvista/internal/gitcore"
     "sync"
 	"net/http"
 )
 
 type Server struct {
-	repo   *git.Repository
+	repo   *gitcore.Repository
 	port   string
 	mu     sync.RWMutex
 	cached struct {
-		info   *git.Repository
+		info   *gitcore.Repository
 		config interface{}
 		graph  interface{}
 		status interface{}
 	}
 }
 
-func NewServer(repo *git.Repository, port string) *Server {
+func NewServer(repo *gitcore.Repository, port string) *Server {
 	return &Server{
 		repo: repo,
 		port: port,

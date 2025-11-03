@@ -2,26 +2,21 @@ package main
 
 import (
 	"flag"
-    "fmt"
-    "github.com/rybkr/gitvista/internal/git"
-    "github.com/rybkr/gitvista/internal/server"
+    "github.com/rybkr/gitvista/internal/gitcore"
 	"log"
 )
 
 func main() {
     repoPath := flag.String("repo", ".", "Path to git repository")
-    port := flag.String("port", "8080", "Port to serve on")
+    showStatus := flag.Bool("status", false, "Imitate 'git status -sb'")
 	flag.Parse()
 
-    repo, err := git.NewRepository(*repoPath)
+    repo, err := gitcore.NewRepository(*repoPath)
     if err != nil {
         log.Fatal(err)
     }
 
-    serv := server.NewServer(repo, *port)
-
-    fmt.Printf("GitSpy running at http://localhost:%s\n", *port)
-    if err = serv.Start(); err != nil {
-        log.Fatal(err)
+    if *showStatus {
+        repo.GitStatusSB()
     }
 }
