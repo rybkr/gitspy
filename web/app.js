@@ -217,6 +217,7 @@ function updateGraph(data) {
     graphData = data
     const rect = document.getElementById('graph').getBoundingClientRect()
     const { width, height } = rect
+    const hasExistingNodes = !(!currentNodes);
 
     const newNodes = data.nodes.map(d => ({
         id: d.hash,
@@ -267,7 +268,6 @@ function updateGraph(data) {
     const newLinksToAdd = newLinks.filter(l => !existingLinkKeys.has(`${l.source}-${l.target}`))
 
     if (newNodesToAdd.length > 0 || newLinksToAdd.length > 0) {
-        const hasExistingNodes = currentNodes.length > 0
         currentNodes.push(...newNodesToAdd)
         currentLinks.push(...newLinksToAdd)
 
@@ -432,7 +432,7 @@ async function fetchGraph() {
     try {
         const res = await fetch('/api/graph', { headers: { 'Accept': 'application/json' } })
         if (!res.ok) return
-        updateGraph(await res.json())
+        //updateGraph(await res.json())
     } catch (_) { }
 }
 
