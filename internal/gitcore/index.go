@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -46,7 +47,21 @@ type StatusEntry struct {
 }
 
 func (e *StatusEntry) String() string {
-	return fmt.Sprintf("%1s%1s %s", e.IndexStatus, e.WorktreeStatus, e.Path)
+    indexColor, worktreeColor := "\x1b[0m", "\x1b[0m"
+
+    switch e.IndexStatus {
+    case "A", "M", "D":
+        indexColor = "\x1b[32m"
+    case "?":
+        indexColor = "\x1b[31m"
+    }
+    
+    switch e.WorktreeStatus {
+    case "?", "M", "D":
+        worktreeColor = "\x1b[31m"
+    }
+
+	return fmt.Sprintf("%s%1s\x1b[0m%s%1s\x1b[0m %s", indexColor, e.IndexStatus, worktreeColor, e.WorktreeStatus, e.Path)
 }
 
 func (r *Repository) GetIndex() (*Index, error) {
@@ -75,15 +90,44 @@ func (r *Repository) GetStatus() (*Status, error) {
 	}
 	indexStatusEntries := r.compareIndexWithHeadTree(index.Entries, headTree)
 	workTreeEntries := r.compareWorkingTreeWithIndex(index.Entries)
-    untrackedFiles := r.findUntrackedFiles(index.Entries)
+	untrackedFiles := r.findUntrackedFiles(index.Entries)
 
 	statusEntries = append(statusEntries, indexStatusEntries...)
 	statusEntries = append(statusEntries, workTreeEntries...)
-    statusEntries = append(statusEntries, untrackedFiles...)
+	statusEntries = append(statusEntries, untrackedFiles...)
+
+    // Need to address the problem where a file was modified, staged, then modified again
+    // This will result in two distinct status entries without special handling given the
+    // current architecture
+    seen := make(map[string]*StatusEntry)
+    for i := len(statusEntries) - 1; i >= 0; i-- {
+        entry := statusEntries[i]
+        if _, ok := seen[entry.Path]; !ok {
+            seen[entry.Path] = &statusEntries[i]
+        } else {
+            if seen[entry.Path].IndexStatus == "" {
+                seen[entry.Path].IndexStatus = entry.IndexStatus
+            }
+            if seen[entry.Path].WorktreeStatus == "" {
+                seen[entry.Path].WorktreeStatus = entry.WorktreeStatus
+            }
+            statusEntries = append(statusEntries[:i], statusEntries[i+1:]...)
+        }
+    }
 
 	return &Status{
 		Entries: statusEntries,
 	}, nil
+}
+
+func (r *Repository) PrintStatus() {
+	status, err := r.GetStatus()
+	if err != nil {
+		log.Fatal(err)
+	}
+    for _, entry := range status.Entries {
+        fmt.Println(entry.String())
+    }
 }
 
 // See: https://git-scm.com/docs/index-format#_the_git_index_file_has_the_following_format
