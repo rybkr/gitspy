@@ -19,6 +19,10 @@ let simulation = null
 let selectedCommit = null
 let popupCommit = null
 let graphContainer = null
+let currentNodes = []
+let currentLinks = []
+let nodeSelection = null
+let linkSelection = null
 
 function updatePopupPosition() {
     if (!popupCommit || !popupOverlay || !popupOverlay.classList.contains('visible') || !graphContainer) return
@@ -61,6 +65,74 @@ function resizeGraph() {
     updatePopupPosition()
 }
 
+function showCommitPopup(commit, event) {
+    if (!commit || !popupOverlay) return
+
+    popupCommit = commit
+    popupHash.textContent = commit.hash
+    popupMessage.textContent = commit.message || 'No message'
+    popupAuthor.textContent = commit.author || 'Unknown author'
+    popupDate.textContent = commit.date || 'Unknown date'
+
+    if (commit.branches && commit.branches.length > 0) {
+        popupBranches.textContent = commit.branches.join(', ')
+        popupBranches.style.display = 'block'
+    } else {
+        popupBranches.style.display = 'none'
+    }
+
+    popupOverlay.classList.add('visible')
+    updatePopupPosition()
+}
+
+function getLinePointOnCircle(source, target, radius) {
+    const dx = target.x - source.x
+    const dy = target.y - source.y
+    const length = Math.sqrt(dx * dx + dy * dy)
+    if (length === 0) return { x: target.x, y: target.y }
+
+    const dxNorm = dx / length
+    const dyNorm = dy / length
+
+    const arrowTipOffset = 0.5
+    return {
+        x: target.x - dxNorm * (radius + arrowTipOffset),
+        y: target.y - dyNorm * (radius + arrowTipOffset)
+    }
+}
+
+function getLineStartPoint(source, target, radius) {
+    const dx = target.x - source.x
+    const dy = target.y - source.y
+    const length = Math.sqrt(dx * dx + dy * dy)
+    if (length === 0) return { x: source.x, y: source.y }
+
+    const dxNorm = dx / length
+    const dyNorm = dy / length
+
+    return {
+        x: source.x + dxNorm * radius,
+        y: source.y + dyNorm * radius
+    }
+}
+
+function dragstarted(event) {
+    if (!event.active) simulation.alphaTarget(0.3).restart()
+    event.subject.fx = event.subject.x
+    event.subject.fy = event.subject.y
+}
+
+function dragged(event) {
+    event.subject.fx = event.x
+    event.subject.fy = event.y
+}
+
+function dragended(event) {
+    if (!event.active) simulation.alphaTarget(0)
+    event.subject.fx = null
+    event.subject.fy = null
+}
+
 function updateGraph(data) {
     if (!data || !data.nodes || !data.edges) return
 
@@ -71,27 +143,7 @@ function updateGraph(data) {
     const width = rect.width
     const height = rect.height
 
-    svg.selectAll('*').remove()
-    svg.attr('width', width).attr('height', height)
-
-    const defs = svg.append('defs')
-    const arrowMarker = defs.append('marker')
-        .attr('id', 'arrowhead')
-        .attr('markerWidth', 6)
-        .attr('markerHeight', 6)
-        .attr('refX', 5.5)
-        .attr('refY', 2)
-        .attr('orient', 'auto')
-
-    const linkColor = getComputedStyle(document.documentElement).getPropertyValue('--link').trim() || '#ccd2db'
-    arrowMarker.append('path')
-        .attr('d', 'M0,0 L0,4 L6,2 z')
-        .attr('fill', linkColor)
-
-    graphContainer = svg.append('g').attr('class', 'graph-container')
-    const container = graphContainer
-
-    const nodes = data.nodes.map(d => ({
+    const newNodes = data.nodes.map(d => ({
         id: d.hash,
         hash: d.hash,
         branches: d.branches || [],
@@ -100,164 +152,199 @@ function updateGraph(data) {
         date: d.date || ''
     }))
 
-    const links = data.edges.map(d => ({
+    const newLinks = data.edges.map(d => ({
         source: d.source,
         target: d.target
     }))
 
-    const link = container.append('g')
-        .attr('class', 'links')
-        .selectAll('line')
-        .data(links)
-        .enter()
-        .append('line')
-        .attr('class', 'link')
-        .attr('marker-end', 'url(#arrowhead)')
+    if (!simulation) {
+        svg.selectAll('*').remove()
+        svg.attr('width', width).attr('height', height)
 
-    const node = container.append('g')
-        .attr('class', 'nodes')
-        .selectAll('g')
-        .data(nodes)
-        .enter()
-        .append('g')
-        .attr('class', d => {
-            let classes = 'node'
-            if (d.branches && d.branches.length > 0) classes += ' branch'
-            if (selectedCommit === d.hash) classes += ' selected'
-            return classes
-        })
-        .call(d3.drag()
-            .on('start', dragstarted)
-            .on('drag', dragged)
-            .on('end', dragended))
+        const defs = svg.append('defs')
+        const arrowMarker = defs.append('marker')
+            .attr('id', 'arrowhead')
+            .attr('markerWidth', 6)
+            .attr('markerHeight', 6)
+            .attr('refX', 5.5)
+            .attr('refY', 2)
+            .attr('orient', 'auto')
 
-    node.append('circle')
-        .attr('r', 6)
+        const linkColor = getComputedStyle(document.documentElement).getPropertyValue('--link').trim() || '#ccd2db'
+        arrowMarker.append('path')
+            .attr('d', 'M0,0 L0,4 L6,2 z')
+            .attr('fill', linkColor)
 
-    node.append('text')
-        .attr('dy', 20)
-        .attr('text-anchor', 'middle')
-        .attr('class', 'node-label')
-        .text(d => d.hash.substring(0, 7))
+        graphContainer = svg.append('g').attr('class', 'graph-container')
+        linkSelection = graphContainer.append('g').attr('class', 'links')
+        nodeSelection = graphContainer.append('g').attr('class', 'nodes')
 
-    function showCommitPopup(commit, event) {
-        if (!commit || !popupOverlay) return
+        simulation = d3.forceSimulation()
+            .force('link', d3.forceLink().id(d => d.id).distance(32))
+            .force('charge', d3.forceManyBody().strength(-128))
+            .force('center', d3.forceCenter(width / 2, height / 2))
+            .force('collision', d3.forceCollide().radius(20))
 
-        popupCommit = commit
-        popupHash.textContent = commit.hash
-        popupMessage.textContent = commit.message || 'No message'
-        popupAuthor.textContent = commit.author || 'Unknown author'
-        popupDate.textContent = commit.date || 'Unknown date'
+        simulation.on('tick', () => {
+            linkSelection.selectAll('line').each(function (d) {
+                const startPoint = getLineStartPoint(d.source, d.target, 6)
+                const endPoint = getLinePointOnCircle(d.source, d.target, 6)
+                d3.select(this)
+                    .attr('x1', startPoint.x)
+                    .attr('y1', startPoint.y)
+                    .attr('x2', endPoint.x)
+                    .attr('y2', endPoint.y)
+            })
 
-        if (commit.branches && commit.branches.length > 0) {
-            popupBranches.textContent = commit.branches.join(', ')
-            popupBranches.style.display = 'block'
-        } else {
-            popupBranches.style.display = 'none'
-        }
+            nodeSelection.selectAll('g.node').attr('transform', d => `translate(${d.x},${d.y})`)
 
-        popupOverlay.classList.add('visible')
-        updatePopupPosition()
-    }
-
-    node.on('click', (event, d) => {
-        selectedCommit = d.hash
-        node.classed('selected', n => n.hash === selectedCommit)
-        showCommitPopup(d, event)
-        event.stopPropagation()
-    })
-
-
-    simulation = d3.forceSimulation(nodes)
-        .force('link', d3.forceLink(links).id(d => d.id).distance(32))
-        .force('charge', d3.forceManyBody().strength(-128))
-        .force('center', d3.forceCenter(width / 2, height / 2))
-        .force('collision', d3.forceCollide().radius(20))
-
-    function getLinePointOnCircle(source, target, radius) {
-        const dx = target.x - source.x
-        const dy = target.y - source.y
-        const length = Math.sqrt(dx * dx + dy * dy)
-        if (length === 0) return { x: target.x, y: target.y }
-
-        const dxNorm = dx / length
-        const dyNorm = dy / length
-
-        const arrowTipOffset = 0.5
-        return {
-            x: target.x - dxNorm * (radius + arrowTipOffset),
-            y: target.y - dyNorm * (radius + arrowTipOffset)
-        }
-    }
-
-    function getLineStartPoint(source, target, radius) {
-        const dx = target.x - source.x
-        const dy = target.y - source.y
-        const length = Math.sqrt(dx * dx + dy * dy)
-        if (length === 0) return { x: source.x, y: source.y }
-
-        const dxNorm = dx / length
-        const dyNorm = dy / length
-
-        return {
-            x: source.x + dxNorm * radius,
-            y: source.y + dyNorm * radius
-        }
-    }
-
-    simulation.on('tick', () => {
-        link.each(function (d) {
-            const startPoint = getLineStartPoint(d.source, d.target, 6)
-            const endPoint = getLinePointOnCircle(d.source, d.target, 6)
-            d3.select(this)
-                .attr('x1', startPoint.x)
-                .attr('y1', startPoint.y)
-                .attr('x2', endPoint.x)
-                .attr('y2', endPoint.y)
-        })
-
-        node.attr('transform', d => `translate(${d.x},${d.y})`)
-
-        if (popupCommit) {
-            const currentCommit = nodes.find(n => n.hash === popupCommit.hash)
-            if (currentCommit) {
-                popupCommit.x = currentCommit.x
-                popupCommit.y = currentCommit.y
-                updatePopupPosition()
+            if (popupCommit) {
+                const currentCommit = currentNodes.find(n => n.hash === popupCommit.hash)
+                if (currentCommit) {
+                    popupCommit.x = currentCommit.x
+                    popupCommit.y = currentCommit.y
+                    updatePopupPosition()
+                }
             }
-        }
-    })
-
-    const zoom = d3.zoom()
-        .scaleExtent([0.1, 4])
-        .on('zoom', (event) => {
-            container.attr('transform', event.transform)
-            updatePopupPosition()
         })
 
-    svg.call(zoom)
+        const zoom = d3.zoom()
+            .scaleExtent([0.1, 4])
+            .on('zoom', (event) => {
+                graphContainer.attr('transform', event.transform)
+                updatePopupPosition()
+            })
 
-    svg.on('click', (event) => {
-        if (event.target === svg.node() || event.target.tagName === 'line') {
-            hideCommitPopup()
+        svg.call(zoom)
+
+        svg.on('click', (event) => {
+            if (event.target === svg.node() || event.target.tagName === 'line') {
+                hideCommitPopup()
+            }
+        })
+
+        currentNodes = newNodes
+        currentLinks = newLinks
+
+        linkSelection.selectAll('line')
+            .data(currentLinks, d => `${d.source}-${d.target}`)
+            .enter()
+            .append('line')
+            .attr('class', 'link')
+            .attr('marker-end', 'url(#arrowhead)')
+
+        const node = nodeSelection.selectAll('g.node')
+            .data(currentNodes, d => d.hash)
+            .enter()
+            .append('g')
+            .attr('class', d => {
+                let classes = 'node'
+                if (d.branches && d.branches.length > 0) classes += ' branch'
+                if (selectedCommit === d.hash) classes += ' selected'
+                return classes
+            })
+            .call(d3.drag()
+                .on('start', dragstarted)
+                .on('drag', dragged)
+                .on('end', dragended))
+
+        node.append('circle')
+            .attr('r', 6)
+
+        node.append('text')
+            .attr('dy', 20)
+            .attr('text-anchor', 'middle')
+            .attr('class', 'node-label')
+            .text(d => d.hash.substring(0, 7))
+
+        node.on('click', (event, d) => {
+            selectedCommit = d.hash
+            nodeSelection.selectAll('g.node').classed('selected', n => n.hash === selectedCommit)
+            showCommitPopup(d, event)
+            event.stopPropagation()
+        })
+
+        simulation.nodes(currentNodes)
+        simulation.force('link').links(currentLinks)
+        simulation.alpha(1).restart()
+        return
+    }
+
+    const existingNodeMap = new Map(currentNodes.map(n => [n.hash, n]))
+    const newNodesToAdd = []
+
+    newNodes.forEach(newNode => {
+        const existing = existingNodeMap.get(newNode.hash)
+        if (existing) {
+            Object.assign(existing, newNode)
+        } else {
+            newNodesToAdd.push(newNode)
         }
     })
 
-    function dragstarted(event) {
-        if (!event.active) simulation.alphaTarget(0.3).restart()
-        event.subject.fx = event.subject.x
-        event.subject.fy = event.subject.y
-    }
+    const existingLinkKeys = new Set(currentLinks.map(l => `${l.source}-${l.target}`))
+    const newLinksToAdd = newLinks.filter(l => {
+        const key = `${l.source}-${l.target}`
+        return !existingLinkKeys.has(key)
+    })
 
-    function dragged(event) {
-        event.subject.fx = event.x
-        event.subject.fy = event.y
-    }
+    if (newNodesToAdd.length > 0 || newLinksToAdd.length > 0) {
+        currentNodes.push(...newNodesToAdd)
+        currentLinks.push(...newLinksToAdd)
 
-    function dragended(event) {
-        if (!event.active) simulation.alphaTarget(0)
-        event.subject.fx = null
-        event.subject.fy = null
+        linkSelection.selectAll('line')
+            .data(currentLinks, d => `${d.source}-${d.target}`)
+            .enter()
+            .append('line')
+            .attr('class', 'link')
+            .attr('marker-end', 'url(#arrowhead)')
+
+        if (newNodesToAdd.length > 0) {
+            const newNodeElements = nodeSelection.selectAll('g.node')
+                .data(currentNodes, d => d.hash)
+                .enter()
+                .append('g')
+                .attr('class', d => {
+                    let classes = 'node'
+                    if (d.branches && d.branches.length > 0) classes += ' branch'
+                    if (selectedCommit === d.hash) classes += ' selected'
+                    return classes
+                })
+                .call(d3.drag()
+                    .on('start', dragstarted)
+                    .on('drag', dragged)
+                    .on('end', dragended))
+
+            newNodeElements.append('circle')
+                .attr('r', 6)
+
+            newNodeElements.append('text')
+                .attr('dy', 20)
+                .attr('text-anchor', 'middle')
+                .attr('class', 'node-label')
+                .text(d => d.hash.substring(0, 7))
+
+            newNodeElements.on('click', (event, d) => {
+                selectedCommit = d.hash
+                nodeSelection.selectAll('g.node').classed('selected', n => n.hash === selectedCommit)
+                showCommitPopup(d, event)
+                event.stopPropagation()
+            })
+        }
+
+        nodeSelection.selectAll('g.node')
+            .data(currentNodes, d => d.hash)
+            .attr('class', d => {
+                let classes = 'node'
+                if (d.branches && d.branches.length > 0) classes += ' branch'
+                if (selectedCommit === d.hash) classes += ' selected'
+                return classes
+            })
+
+        simulation.nodes(currentNodes)
+        simulation.force('link').links(currentLinks)
+        simulation.force('center', d3.forceCenter(width / 2, height / 2))
+        simulation.alpha(1).restart()
     }
 }
 
