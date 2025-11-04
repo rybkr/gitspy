@@ -25,29 +25,22 @@ let nodeSelection = null
 let linkSelection = null
 
 function updatePopupPosition() {
-    if (!popupCommit || !popupOverlay || !popupOverlay.classList.contains('visible') || !graphContainer) return
+    if (!popupCommit || !popupOverlay?.classList.contains('visible') || !graphContainer) return
 
     const svgRect = document.getElementById('graphSvg').getBoundingClientRect()
     const containerTransform = d3.zoomTransform(graphContainer.node())
     const nodeX = containerTransform.applyX(popupCommit.x || 0)
     const nodeY = containerTransform.applyY(popupCommit.y || 0)
 
-    const offsetX = 20
-    const offsetY = -10
-
+    const offsetX = 20, offsetY = -10
     let left = svgRect.left + nodeX + offsetX
     let top = svgRect.top + nodeY + offsetY
 
     const popupRect = popupOverlay.getBoundingClientRect()
-    const viewportWidth = window.innerWidth
-    const viewportHeight = window.innerHeight
+    const { innerWidth: viewportWidth, innerHeight: viewportHeight } = window
 
-    if (left + popupRect.width > viewportWidth) {
-        left = svgRect.left + nodeX - popupRect.width - offsetX
-    }
-    if (top + popupRect.height > viewportHeight) {
-        top = svgRect.top + nodeY - popupRect.height - offsetY
-    }
+    if (left + popupRect.width > viewportWidth) left = svgRect.left + nodeX - popupRect.width - offsetX
+    if (top + popupRect.height > viewportHeight) top = svgRect.top + nodeY - popupRect.height - offsetY
     if (left < 0) left = 10
     if (top < 0) top = 10
 
@@ -56,8 +49,7 @@ function updatePopupPosition() {
 }
 
 function resizeGraph() {
-    const graphSection = document.getElementById('graph')
-    const rect = graphSection.getBoundingClientRect()
+    const rect = document.getElementById('graph').getBoundingClientRect()
     svg.attr('width', rect.width).attr('height', rect.height)
     if (simulation) {
         simulation.force('center', d3.forceCenter(rect.width / 2, rect.height / 2))
@@ -65,7 +57,7 @@ function resizeGraph() {
     updatePopupPosition()
 }
 
-function showCommitPopup(commit, event) {
+function showCommitPopup(commit) {
     if (!commit || !popupOverlay) return
 
     popupCommit = commit
@@ -74,7 +66,7 @@ function showCommitPopup(commit, event) {
     popupAuthor.textContent = commit.author || 'Unknown author'
     popupDate.textContent = commit.date || 'Unknown date'
 
-    if (commit.branches && commit.branches.length > 0) {
+    if (commit.branches?.length > 0) {
         popupBranches.textContent = commit.branches.join(', ')
         popupBranches.style.display = 'block'
     } else {
@@ -91,13 +83,10 @@ function getLinePointOnCircle(source, target, radius) {
     const length = Math.sqrt(dx * dx + dy * dy)
     if (length === 0) return { x: target.x, y: target.y }
 
-    const dxNorm = dx / length
-    const dyNorm = dy / length
-
-    const arrowTipOffset = 0.5
+    const norm = radius + 0.5
     return {
-        x: target.x - dxNorm * (radius + arrowTipOffset),
-        y: target.y - dyNorm * (radius + arrowTipOffset)
+        x: target.x - (dx / length) * norm,
+        y: target.y - (dy / length) * norm
     }
 }
 
@@ -107,12 +96,9 @@ function getLineStartPoint(source, target, radius) {
     const length = Math.sqrt(dx * dx + dy * dy)
     if (length === 0) return { x: source.x, y: source.y }
 
-    const dxNorm = dx / length
-    const dyNorm = dy / length
-
     return {
-        x: source.x + dxNorm * radius,
-        y: source.y + dyNorm * radius
+        x: source.x + (dx / length) * radius,
+        y: source.y + (dy / length) * radius
     }
 }
 
@@ -133,15 +119,104 @@ function dragended(event) {
     event.subject.fy = null
 }
 
+function getNodeClass(d) {
+    let classes = 'node'
+    if (d.branches?.length > 0) classes += ' branch'
+    if (selectedCommit === d.hash) classes += ' selected'
+    return classes
+}
+
+function createNodeElement(node) {
+    const nodeEl = node.append('g')
+        .attr('class', getNodeClass)
+        .call(d3.drag().on('start', dragstarted).on('drag', dragged).on('end', dragended))
+
+    nodeEl.append('circle').attr('r', 6)
+
+    nodeEl.append('text')
+        .attr('dy', 20)
+        .attr('text-anchor', 'middle')
+        .attr('class', 'node-label')
+        .text(d => d.hash.substring(0, 7))
+
+    nodeEl.on('click', (event, d) => {
+        selectedCommit = d.hash
+        nodeSelection.selectAll('g.node').classed('selected', n => n.hash === selectedCommit)
+        showCommitPopup(d, event)
+        event.stopPropagation()
+    })
+
+    return nodeEl
+}
+
+function initializeSimulation(width, height) {
+    svg.selectAll('*').remove()
+    svg.attr('width', width).attr('height', height)
+
+    const linkColor = getComputedStyle(document.documentElement).getPropertyValue('--link').trim() || '#ccd2db'
+    svg.append('defs').append('marker')
+        .attr('id', 'arrowhead')
+        .attr('markerWidth', 6)
+        .attr('markerHeight', 6)
+        .attr('refX', 5.5)
+        .attr('refY', 2)
+        .attr('orient', 'auto')
+        .append('path')
+        .attr('d', 'M0,0 L0,4 L6,2 z')
+        .attr('fill', linkColor)
+
+    graphContainer = svg.append('g').attr('class', 'graph-container')
+    linkSelection = graphContainer.append('g').attr('class', 'links')
+    nodeSelection = graphContainer.append('g').attr('class', 'nodes')
+
+    simulation = d3.forceSimulation()
+        .force('link', d3.forceLink().id(d => d.id).distance(32))
+        .force('charge', d3.forceManyBody().strength(-128))
+        .force('center', d3.forceCenter(width / 2, height / 2))
+        .force('collision', d3.forceCollide().radius(20))
+
+    simulation.on('tick', () => {
+        linkSelection.selectAll('line').each(function (d) {
+            const startPoint = getLineStartPoint(d.source, d.target, 6)
+            const endPoint = getLinePointOnCircle(d.source, d.target, 6)
+            d3.select(this)
+                .attr('x1', startPoint.x).attr('y1', startPoint.y)
+                .attr('x2', endPoint.x).attr('y2', endPoint.y)
+        })
+
+        nodeSelection.selectAll('g.node').attr('transform', d => `translate(${d.x},${d.y})`)
+
+        if (popupCommit) {
+            const currentCommit = currentNodes.find(n => n.hash === popupCommit.hash)
+            if (currentCommit) {
+                popupCommit.x = currentCommit.x
+                popupCommit.y = currentCommit.y
+                updatePopupPosition()
+            }
+        }
+    })
+
+    const zoom = d3.zoom()
+        .scaleExtent([0.1, 4])
+        .on('zoom', (event) => {
+            graphContainer.attr('transform', event.transform)
+            updatePopupPosition()
+        })
+
+    svg.call(zoom)
+    svg.on('click', (event) => {
+        if (event.target === svg.node() || event.target.tagName === 'line') {
+            hideCommitPopup()
+        }
+    })
+}
+
 function updateGraph(data) {
-    if (!data || !data.nodes || !data.edges) return
+    if (!data?.nodes || !data.edges) return
 
     graphData = data
-
-    const graphSection = document.getElementById('graph')
-    const rect = graphSection.getBoundingClientRect()
-    const width = rect.width
-    const height = rect.height
+    const rect = document.getElementById('graph').getBoundingClientRect()
+    const { width, height } = rect
 
     const newNodes = data.nodes.map(d => ({
         id: d.hash,
@@ -158,71 +233,7 @@ function updateGraph(data) {
     }))
 
     if (!simulation) {
-        svg.selectAll('*').remove()
-        svg.attr('width', width).attr('height', height)
-
-        const defs = svg.append('defs')
-        const arrowMarker = defs.append('marker')
-            .attr('id', 'arrowhead')
-            .attr('markerWidth', 6)
-            .attr('markerHeight', 6)
-            .attr('refX', 5.5)
-            .attr('refY', 2)
-            .attr('orient', 'auto')
-
-        const linkColor = getComputedStyle(document.documentElement).getPropertyValue('--link').trim() || '#ccd2db'
-        arrowMarker.append('path')
-            .attr('d', 'M0,0 L0,4 L6,2 z')
-            .attr('fill', linkColor)
-
-        graphContainer = svg.append('g').attr('class', 'graph-container')
-        linkSelection = graphContainer.append('g').attr('class', 'links')
-        nodeSelection = graphContainer.append('g').attr('class', 'nodes')
-
-        simulation = d3.forceSimulation()
-            .force('link', d3.forceLink().id(d => d.id).distance(32))
-            .force('charge', d3.forceManyBody().strength(-128))
-            .force('center', d3.forceCenter(width / 2, height / 2))
-            .force('collision', d3.forceCollide().radius(20))
-
-        simulation.on('tick', () => {
-            linkSelection.selectAll('line').each(function (d) {
-                const startPoint = getLineStartPoint(d.source, d.target, 6)
-                const endPoint = getLinePointOnCircle(d.source, d.target, 6)
-                d3.select(this)
-                    .attr('x1', startPoint.x)
-                    .attr('y1', startPoint.y)
-                    .attr('x2', endPoint.x)
-                    .attr('y2', endPoint.y)
-            })
-
-            nodeSelection.selectAll('g.node').attr('transform', d => `translate(${d.x},${d.y})`)
-
-            if (popupCommit) {
-                const currentCommit = currentNodes.find(n => n.hash === popupCommit.hash)
-                if (currentCommit) {
-                    popupCommit.x = currentCommit.x
-                    popupCommit.y = currentCommit.y
-                    updatePopupPosition()
-                }
-            }
-        })
-
-        const zoom = d3.zoom()
-            .scaleExtent([0.1, 4])
-            .on('zoom', (event) => {
-                graphContainer.attr('transform', event.transform)
-                updatePopupPosition()
-            })
-
-        svg.call(zoom)
-
-        svg.on('click', (event) => {
-            if (event.target === svg.node() || event.target.tagName === 'line') {
-                hideCommitPopup()
-            }
-        })
-
+        initializeSimulation(width, height)
         currentNodes = newNodes
         currentLinks = newLinks
 
@@ -233,36 +244,11 @@ function updateGraph(data) {
             .attr('class', 'link')
             .attr('marker-end', 'url(#arrowhead)')
 
-        const node = nodeSelection.selectAll('g.node')
-            .data(currentNodes, d => d.hash)
-            .enter()
-            .append('g')
-            .attr('class', d => {
-                let classes = 'node'
-                if (d.branches && d.branches.length > 0) classes += ' branch'
-                if (selectedCommit === d.hash) classes += ' selected'
-                return classes
-            })
-            .call(d3.drag()
-                .on('start', dragstarted)
-                .on('drag', dragged)
-                .on('end', dragended))
-
-        node.append('circle')
-            .attr('r', 6)
-
-        node.append('text')
-            .attr('dy', 20)
-            .attr('text-anchor', 'middle')
-            .attr('class', 'node-label')
-            .text(d => d.hash.substring(0, 7))
-
-        node.on('click', (event, d) => {
-            selectedCommit = d.hash
-            nodeSelection.selectAll('g.node').classed('selected', n => n.hash === selectedCommit)
-            showCommitPopup(d, event)
-            event.stopPropagation()
-        })
+        createNodeElement(
+            nodeSelection.selectAll('g.node')
+                .data(currentNodes, d => d.hash)
+                .enter()
+        )
 
         simulation.nodes(currentNodes)
         simulation.force('link').links(currentLinks)
@@ -271,22 +257,14 @@ function updateGraph(data) {
     }
 
     const existingNodeMap = new Map(currentNodes.map(n => [n.hash, n]))
-    const newNodesToAdd = []
-
-    newNodes.forEach(newNode => {
+    const newNodesToAdd = newNodes.filter(newNode => {
         const existing = existingNodeMap.get(newNode.hash)
-        if (existing) {
-            Object.assign(existing, newNode)
-        } else {
-            newNodesToAdd.push(newNode)
-        }
+        if (existing) Object.assign(existing, newNode)
+        return !existing
     })
 
     const existingLinkKeys = new Set(currentLinks.map(l => `${l.source}-${l.target}`))
-    const newLinksToAdd = newLinks.filter(l => {
-        const key = `${l.source}-${l.target}`
-        return !existingLinkKeys.has(key)
-    })
+    const newLinksToAdd = newLinks.filter(l => !existingLinkKeys.has(`${l.source}-${l.target}`))
 
     if (newNodesToAdd.length > 0 || newLinksToAdd.length > 0) {
         currentNodes.push(...newNodesToAdd)
@@ -300,46 +278,16 @@ function updateGraph(data) {
             .attr('marker-end', 'url(#arrowhead)')
 
         if (newNodesToAdd.length > 0) {
-            const newNodeElements = nodeSelection.selectAll('g.node')
-                .data(currentNodes, d => d.hash)
-                .enter()
-                .append('g')
-                .attr('class', d => {
-                    let classes = 'node'
-                    if (d.branches && d.branches.length > 0) classes += ' branch'
-                    if (selectedCommit === d.hash) classes += ' selected'
-                    return classes
-                })
-                .call(d3.drag()
-                    .on('start', dragstarted)
-                    .on('drag', dragged)
-                    .on('end', dragended))
-
-            newNodeElements.append('circle')
-                .attr('r', 6)
-
-            newNodeElements.append('text')
-                .attr('dy', 20)
-                .attr('text-anchor', 'middle')
-                .attr('class', 'node-label')
-                .text(d => d.hash.substring(0, 7))
-
-            newNodeElements.on('click', (event, d) => {
-                selectedCommit = d.hash
-                nodeSelection.selectAll('g.node').classed('selected', n => n.hash === selectedCommit)
-                showCommitPopup(d, event)
-                event.stopPropagation()
-            })
+            createNodeElement(
+                nodeSelection.selectAll('g.node')
+                    .data(currentNodes, d => d.hash)
+                    .enter()
+            )
         }
 
         nodeSelection.selectAll('g.node')
             .data(currentNodes, d => d.hash)
-            .attr('class', d => {
-                let classes = 'node'
-                if (d.branches && d.branches.length > 0) classes += ' branch'
-                if (selectedCommit === d.hash) classes += ' selected'
-                return classes
-            })
+            .attr('class', getNodeClass)
 
         simulation.nodes(currentNodes)
         simulation.force('link').links(currentLinks)
@@ -354,9 +302,7 @@ function getSidebarWidth() {
 }
 
 function setSidebarWidth(width) {
-    const minWidth = 180
-    const maxWidth = 500
-    const clamped = Math.max(minWidth, Math.min(maxWidth, width))
+    const clamped = Math.max(180, Math.min(500, width))
     document.documentElement.style.setProperty('--sidebar-width', `${clamped}px`)
     localStorage.setItem('sidebarWidth', clamped.toString())
     resizeGraph()
@@ -364,13 +310,8 @@ function setSidebarWidth(width) {
 
 function toggleSidebar() {
     const isCollapsed = sidebar.classList.contains('collapsed')
-    if (isCollapsed) {
-        sidebar.classList.remove('collapsed')
-        main.classList.remove('collapsed')
-    } else {
-        sidebar.classList.add('collapsed')
-        main.classList.add('collapsed')
-    }
+    sidebar.classList.toggle('collapsed', !isCollapsed)
+    main.classList.toggle('collapsed', !isCollapsed)
     setTimeout(resizeGraph, 200)
 }
 
@@ -392,8 +333,7 @@ function startResize(e) {
 
 function doResize(e) {
     if (!isResizing) return
-    const diff = e.clientX - startX
-    queuedWidth = startWidth + diff
+    queuedWidth = startWidth + (e.clientX - startX)
     if (!rafId) {
         rafId = requestAnimationFrame(() => {
             if (queuedWidth != null) setSidebarWidth(queuedWidth)
@@ -420,10 +360,7 @@ resizeGraph()
 
 function updateRepositoryInfo(data) {
     if (!data || typeof data !== 'object') return
-
-    if (repoNameEl && data.name != null) {
-        repoNameEl.textContent = data.name
-    }
+    if (repoNameEl && data.name != null) repoNameEl.textContent = data.name
     if (repoPathEl && data.absPath != null) {
         repoPathEl.textContent = data.absPath
         repoPathEl.title = data.absPath
@@ -433,26 +370,23 @@ function updateRepositoryInfo(data) {
 function updateStatus(data) {
     if (!statusBodyEl) return
 
-    if (!data || !Array.isArray(data.entries) || data.entries.length === 0) {
+    if (!data?.entries?.length) {
         statusBodyEl.innerHTML = '<div style="color:var(--muted)">Working tree clean</div>'
         return
     }
 
+    const getStatusClass = status => (status?.toLowerCase() === '?' ? 'untracked' : status?.toLowerCase() || '')
     const fragment = document.createDocumentFragment()
+
     data.entries.forEach(entry => {
         const entryDiv = document.createElement('div')
         entryDiv.className = 'status-entry'
 
-        const indexStatus = entry.indexStatus || ' '
-        const worktreeStatus = entry.worktreeStatus || ' '
-
         const statusFlags = document.createElement('span')
         statusFlags.className = 'status-flags'
 
-        const getStatusClass = (status) => {
-            const s = status.toLowerCase()
-            return s === '?' ? 'untracked' : s
-        }
+        const indexStatus = entry.indexStatus || ' '
+        const worktreeStatus = entry.worktreeStatus || ' '
 
         const indexSpan = document.createElement('span')
         indexSpan.className = `status-char index status-${getStatusClass(indexStatus)}`
@@ -481,33 +415,24 @@ async function fetchRepositoryInfo() {
     try {
         const res = await fetch('/api/repository', { headers: { 'Accept': 'application/json' } })
         if (!res.ok) return
-        const data = await res.json()
-        updateRepositoryInfo(data)
-    } catch (_) {
-        // ignore for now; page stays with placeholders
-    }
+        updateRepositoryInfo(await res.json())
+    } catch (_) { }
 }
 
 async function fetchStatus() {
     try {
         const res = await fetch('/api/status', { headers: { 'Accept': 'application/json' } })
         if (!res.ok) return
-        const data = await res.json()
-        updateStatus(data)
-    } catch (_) {
-        // ignore for now
-    }
+        updateStatus(await res.json())
+    } catch (_) { }
 }
 
 async function fetchGraph() {
     try {
         const res = await fetch('/api/graph', { headers: { 'Accept': 'application/json' } })
         if (!res.ok) return
-        const data = await res.json()
-        updateGraph(data)
-    } catch (_) {
-        // ignore for now
-    }
+        updateGraph(await res.json())
+    } catch (_) { }
 }
 
 let ws = null
@@ -516,9 +441,7 @@ const reconnectDelay = 2000
 
 function connectWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsUrl = `${protocol}//${window.location.host}/api/ws`
-
-    ws = new WebSocket(wsUrl)
+    ws = new WebSocket(`${protocol}//${window.location.host}/api/ws`)
 
     ws.onopen = () => {
         if (reconnectTimeout) {
@@ -530,21 +453,17 @@ function connectWebSocket() {
     ws.onmessage = (event) => {
         try {
             const message = JSON.parse(event.data)
-            if (message && message.type === 'repository' && message.data) {
+            if (message?.type === 'repository' && message.data) {
                 updateRepositoryInfo(message.data)
-            } else if (message && message.type === 'status' && message.data) {
+            } else if (message?.type === 'status' && message.data) {
                 updateStatus(message.data)
-            } else if (message && message.type === 'graph' && message.data) {
+            } else if (message?.type === 'graph' && message.data) {
                 updateGraph(message.data)
             }
-        } catch (err) {
-            // Ignore parse errors
-        }
+        } catch (_) { }
     }
 
-    ws.onerror = () => {
-        // Error handled by onclose
-    }
+    ws.onerror = () => { }
 
     ws.onclose = () => {
         ws = null
@@ -555,23 +474,18 @@ function connectWebSocket() {
 }
 
 function hideCommitPopup() {
-    if (popupOverlay) {
-        popupOverlay.classList.remove('visible')
-    }
+    if (popupOverlay) popupOverlay.classList.remove('visible')
     popupCommit = null
 }
 
 document.addEventListener('click', (e) => {
-    if (popupOverlay && popupOverlay.classList.contains('visible')) {
-        const target = e.target
-        if (!popupOverlay.contains(target) && target !== popupOverlay) {
-            hideCommitPopup()
-        }
+    if (popupOverlay?.classList.contains('visible') && !popupOverlay.contains(e.target) && e.target !== popupOverlay) {
+        hideCommitPopup()
     }
 }, true)
 
 document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && popupOverlay && popupOverlay.classList.contains('visible')) {
+    if (e.key === 'Escape' && popupOverlay?.classList.contains('visible')) {
         hideCommitPopup()
     }
 })
