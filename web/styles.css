@@ -195,34 +195,78 @@ body.resizing #sidebar {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-bottom: 4px;
+    margin-bottom: 2px;
+    line-height: 1.4;
 }
 
 #sidebar .status-flags {
-    display: flex;
-    gap: 2px;
-    min-width: 24px;
-}
-
-#sidebar .status-flag {
-    width: 10px;
-    height: 10px;
-    border-radius: 2px;
-    font-size: 10px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    display: inline-block;
+    width: 24px;
+    text-align: center;
     font-weight: 600;
 }
 
-#sidebar .status-flag.index {
-    background: var(--accent);
-    color: var(--bg);
+#sidebar .status-char {
+    display: inline-block;
+    width: 12px;
 }
 
-#sidebar .status-flag.worktree {
-    background: var(--muted);
-    color: var(--bg);
+#sidebar .status-char.index.status-a {
+    color: #22c55e;
+}
+
+#sidebar .status-char.index.status-m {
+    color: #f59e0b;
+}
+
+#sidebar .status-char.index.status-d {
+    color: #ef4444;
+}
+
+#sidebar .status-char.index.status-r {
+    color: #3b82f6;
+}
+
+#sidebar .status-char.worktree.status-m {
+    color: #f59e0b;
+}
+
+#sidebar .status-char.worktree.status-d {
+    color: #ef4444;
+}
+
+#sidebar .status-char.worktree.status-untracked {
+    color: #ef4444;
+}
+
+@media (prefers-color-scheme: dark) {
+    #sidebar .status-char.index.status-a {
+        color: #4ade80;
+    }
+
+    #sidebar .status-char.index.status-m {
+        color: #fbbf24;
+    }
+
+    #sidebar .status-char.index.status-d {
+        color: #f87171;
+    }
+
+    #sidebar .status-char.index.status-r {
+        color: #60a5fa;
+    }
+
+    #sidebar .status-char.worktree.status-m {
+        color: #fbbf24;
+    }
+
+    #sidebar .status-char.worktree.status-d {
+        color: #f87171;
+    }
+
+    #sidebar .status-char.worktree.status-untracked {
+        color: #f87171;
+    }
 }
 
 #sidebar .status-path {

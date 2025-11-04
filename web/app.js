@@ -116,29 +116,33 @@ function updateStatus(data) {
         const entryDiv = document.createElement('div')
         entryDiv.className = 'status-entry'
         
-        const flagsDiv = document.createElement('div')
-        flagsDiv.className = 'status-flags'
+        const indexStatus = entry.indexStatus || ' '
+        const worktreeStatus = entry.worktreeStatus || ' '
         
-        if (entry.indexStatus) {
-            const indexFlag = document.createElement('div')
-            indexFlag.className = 'status-flag index'
-            indexFlag.textContent = entry.indexStatus || ' '
-            flagsDiv.appendChild(indexFlag)
+        const statusFlags = document.createElement('span')
+        statusFlags.className = 'status-flags'
+        
+        const getStatusClass = (status) => {
+            const s = status.toLowerCase()
+            return s === '?' ? 'untracked' : s
         }
         
-        if (entry.worktreeStatus) {
-            const worktreeFlag = document.createElement('div')
-            worktreeFlag.className = 'status-flag worktree'
-            worktreeFlag.textContent = entry.worktreeStatus || ' '
-            flagsDiv.appendChild(worktreeFlag)
-        }
+        const indexSpan = document.createElement('span')
+        indexSpan.className = `status-char index status-${getStatusClass(indexStatus)}`
+        indexSpan.textContent = indexStatus
+        statusFlags.appendChild(indexSpan)
         
-        const pathDiv = document.createElement('div')
-        pathDiv.className = 'status-path'
-        pathDiv.textContent = entry.path || ''
+        const worktreeSpan = document.createElement('span')
+        worktreeSpan.className = `status-char worktree status-${getStatusClass(worktreeStatus)}`
+        worktreeSpan.textContent = worktreeStatus
+        statusFlags.appendChild(worktreeSpan)
         
-        entryDiv.appendChild(flagsDiv)
-        entryDiv.appendChild(pathDiv)
+        const pathSpan = document.createElement('span')
+        pathSpan.className = 'status-path'
+        pathSpan.textContent = entry.path || ''
+        
+        entryDiv.appendChild(statusFlags)
+        entryDiv.appendChild(pathSpan)
         fragment.appendChild(entryDiv)
     })
     
