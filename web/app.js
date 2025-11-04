@@ -232,19 +232,21 @@ function updateBranchNodes() {
         }
     })
 
-    branchNodeSelection.selectAll('g.branch-node')
-        .data(currentBranchNodes, d => d.id)
-        .exit()
-        .remove()
+    const branchesToRemove = currentBranchNodes.filter(branch => !branchToCommitMap.has(branch.branchName))
 
-    currentBranchNodes.forEach(branch => {
-        if (!branchToCommitMap.has(branch.branchName)) {
+    if (branchesToRemove.length > 0) {
+        branchesToRemove.forEach(branch => {
             const index = currentBranchNodes.indexOf(branch)
             if (index > -1) {
                 currentBranchNodes.splice(index, 1)
             }
-        }
-    })
+        })
+    }
+
+    const branchNodeUpdate = branchNodeSelection.selectAll('g.branch-node')
+        .data(currentBranchNodes, d => d.id)
+
+    branchNodeUpdate.exit().remove()
 
     currentLinks = currentLinks.filter(l => l.type !== 'branch-link')
 
@@ -407,46 +409,81 @@ function updateGraph(data) {
         return
     }
 
+    const newNodesMap = new Map(newNodes.map(n => [n.hash, n]))
     const existingNodeMap = new Map(currentNodes.map(n => [n.hash, n]))
+
     const newNodesToAdd = newNodes.filter(newNode => {
         const existing = existingNodeMap.get(newNode.hash)
         if (existing) Object.assign(existing, newNode)
         return !existing
     })
 
-    const existingLinkKeys = new Set(currentLinks.map(l => `${l.source}-${l.target}`))
+    const nodesToRemove = currentNodes.filter(node => !newNodesMap.has(node.hash))
+
+    const newLinksSet = new Set(newLinks.map(l => `${l.source}-${l.target}`))
+    const existingLinkKeys = new Set(currentLinks.filter(l => !l.type || l.type !== 'branch-link').map(l => `${l.source}-${l.target}`))
     const newLinksToAdd = newLinks.filter(l => !existingLinkKeys.has(`${l.source}-${l.target}`))
+    const linksToRemove = currentLinks.filter(l => (!l.type || l.type !== 'branch-link') && !newLinksSet.has(`${l.source}-${l.target}`))
 
-    if (newNodesToAdd.length > 0 || newLinksToAdd.length > 0) {
+    if (nodesToRemove.length > 0) {
+        nodesToRemove.forEach(node => {
+            const index = currentNodes.indexOf(node)
+            if (index > -1) currentNodes.splice(index, 1)
+
+            if (node.hash === selectedCommit) {
+                selectedCommit = null
+                hideCommitPopup()
+            }
+        })
+    }
+
+    if (linksToRemove.length > 0) {
+        linksToRemove.forEach(link => {
+            const index = currentLinks.indexOf(link)
+            if (index > -1) currentLinks.splice(index, 1)
+        })
+    }
+
+    if (newNodesToAdd.length > 0) {
         currentNodes.push(...newNodesToAdd)
+    }
+
+    if (newLinksToAdd.length > 0) {
         currentLinks.push(...newLinksToAdd)
+    }
 
-        linkSelection.selectAll('line:not(.branch-link)')
-            .data(currentLinks.filter(l => !l.type || l.type !== 'branch-link'), d => `${d.source}-${d.target}`)
-            .enter()
-            .append('line')
-            .attr('class', 'link')
-            .attr('marker-end', 'url(#arrowhead)')
+    const commitLinks = currentLinks.filter(l => !l.type || l.type !== 'branch-link')
 
-        if (newNodesToAdd.length > 0) {
-            createNodeElement(
-                nodeSelection.selectAll('g.node')
-                    .data(currentNodes, d => d.hash)
-                    .enter()
-            )
-        }
+    const nodeUpdate = nodeSelection.selectAll('g.node')
+        .data(currentNodes, d => d.hash)
 
-        nodeSelection.selectAll('g.node')
-            .data(currentNodes, d => d.hash)
-            .attr('class', getNodeClass)
+    nodeUpdate.exit().remove()
 
-        updateBranchNodes()
+    if (newNodesToAdd.length > 0) {
+        createNodeElement(nodeUpdate.enter())
+    }
 
-        const allNodes = [...currentNodes, ...currentBranchNodes]
-        simulation.nodes(allNodes)
-        simulation.force('link').links(currentLinks)
-        simulation.force('center', d3.forceCenter(width / 2, height / 2))
-        simulation.alpha(1).restart()
+    nodeUpdate.attr('class', getNodeClass)
+
+    const linkUpdate = linkSelection.selectAll('line:not(.branch-link)')
+        .data(commitLinks, d => `${d.source}-${d.target}`)
+
+    linkUpdate.exit().remove()
+    linkUpdate.enter()
+        .append('line')
+        .attr('class', 'link')
+        .attr('marker-end', 'url(#arrowhead)')
+        .merge(linkUpdate)
+
+    updateBranchNodes()
+
+    const allNodes = [...currentNodes, ...currentBranchNodes]
+    simulation.nodes(allNodes)
+    simulation.force('link').links(currentLinks)
+    simulation.force('center', d3.forceCenter(width / 2, height / 2))
+
+    if (nodesToRemove.length > 0 || linksToRemove.length > 0 || newNodesToAdd.length > 0 || newLinksToAdd.length > 0) {
+        simulation.alpha(1.0).restart()
     }
 }
 
