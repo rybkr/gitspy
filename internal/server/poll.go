@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	pollPeriod = 5 * time.Second
+	pollPeriod = 50 * time.Millisecond
 )
 
 func (s *Server) pollRepo() {
@@ -44,14 +44,9 @@ func (s *Server) pollRepo() {
 }
 
 func (s *Server) pollOnce() {
-	info := s.repo
-	config, err := s.repo.GetConfig()
-	if err != nil {
-		log.Printf("Error fetching config: %v", err)
-		// Continue with nil config
-	}
+	repository := s.repo
 
-	graph, err := s.repo.GetGraph()
+	graph, err := domain.BuildGraph(s.repo)
 	if err != nil {
 		log.Printf("Error fetching graph: %v", err)
 		// Continue with nil graph
@@ -66,26 +61,17 @@ func (s *Server) pollOnce() {
 	// Compare with cached data to detect changes
 	// We use a read lock for comparison to allow concurrent reads by HTTP handlers
 	s.mu.RLock()
-	infoChanged := !reflect.DeepEqual(s.cached.info, info)
-	configChanged := !reflect.DeepEqual(s.cached.config, config)
+	repoChanged := !reflect.DeepEqual(s.cached.repoInfo, repository.Info())
 	graphChanged := !s.graphEqual(s.cached.graph, graph)
 	statusChanged := !reflect.DeepEqual(s.cached.status, status)
 	s.mu.RUnlock()
 
-	if infoChanged {
+	if repoChanged {
 		s.mu.Lock()
-		s.cached.info = info
+		s.cached.repoInfo = repository.Info()
 		s.mu.Unlock()
-		s.broadcastUpdate(MessageTypeInfo, info)
+		s.broadcastUpdate(MessageTypeRepository, s.cached.repoInfo)
 		log.Println("Repository info changed, broadcasting update")
-	}
-
-	if configChanged {
-		s.mu.Lock()
-		s.cached.config = config
-		s.mu.Unlock()
-		s.broadcastUpdate(MessageTypeConfig, config)
-		log.Println("Repository config changed, broadcasting update")
 	}
 
 	if graphChanged {

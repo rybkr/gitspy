@@ -33,7 +33,6 @@ func (r *Repository) GetCommits() ([]Commit, error) {
 
     // TODO(rybkr): Eliminate wasteful iterations
     for hash, branchList := range branches {
-        fmt.Println(branchList)
         for i := range commits {
             if commits[i].Hash == hash {
                 commits[i].Branches = branchList 

@@ -3,6 +3,7 @@ package gitcore
 import (
 	"encoding/hex"
 	"fmt"
+	"path/filepath"
 )
 
 type Repository struct {
@@ -13,6 +14,30 @@ func NewRepository(path string) (*Repository, error) {
 	return &Repository{
 		Path: path,
 	}, nil
+}
+
+func (r *Repository) Name() string {
+	return filepath.Base(r.AbsPath())
+}
+
+func (r *Repository) AbsPath() string {
+	absPath, err := filepath.Abs(r.Path)
+	if err != nil {
+		return r.Path
+	}
+	return absPath
+}
+
+type RepositoryInfo struct {
+	Name    string `json:"name"`
+	AbsPath string `json:"absPath"`
+}
+
+func (r *Repository) Info() *RepositoryInfo {
+	return &RepositoryInfo{
+		Name:    r.Name(),
+		AbsPath: r.AbsPath(),
+	}
 }
 
 type GitHash string
