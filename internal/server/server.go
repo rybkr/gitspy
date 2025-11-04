@@ -35,9 +35,9 @@ var upgrader = websocket.Upgrader{
 type MessageType string
 
 const (
-	MessageTypeInfo   MessageType = "info"
-	MessageTypeGraph  MessageType = "graph"
-	MessageTypeStatus MessageType = "status"
+	MessageTypeRepository MessageType = "repository"
+	MessageTypeGraph      MessageType = "graph"
+	MessageTypeStatus     MessageType = "status"
 )
 
 type UpdateMessage struct {
@@ -54,9 +54,9 @@ type Server struct {
 	// This is optimal since reads vastly outnumber writes.
 	mu     sync.RWMutex
 	cached struct {
-		info   *gitcore.Repository
-		graph  interface{}
-		status interface{}
+		repoInfo *gitcore.RepositoryInfo
+		graph    interface{}
+		status   interface{}
 	}
 
 	// Client registry and its lock
@@ -94,7 +94,7 @@ func (s *Server) Start() error {
 
 	// REST API endpoints are for initial page load and backward compatibility.
 	// Clients should prefer WebSocket for live updates.
-	http.HandleFunc("/api/info", s.handleInfo)
+	http.HandleFunc("/api/repository", s.handleRepository)
 	http.HandleFunc("/api/graph", s.handleGraph)
 	http.HandleFunc("/api/status", s.handleStatus)
 
@@ -125,11 +125,11 @@ func (s *Server) Shutdown() {
 	log.Println("Server shutdown complete")
 }
 
-func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleRepository(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.cached.info)
+	json.NewEncoder(w).Encode(s.cached.repoInfo)
 }
 
 func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
@@ -256,7 +256,7 @@ func (s *Server) sendInitialState(conn *websocket.Conn) {
 	defer s.mu.RUnlock()
 
 	messages := []UpdateMessage{
-		{Type: string(MessageTypeInfo), Data: s.cached.info},
+		{Type: string(MessageTypeRepository), Data: s.cached.repoInfo},
 		{Type: string(MessageTypeGraph), Data: s.cached.graph},
 		{Type: string(MessageTypeStatus), Data: s.cached.status},
 	}

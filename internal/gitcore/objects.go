@@ -10,7 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-    "time"
+	"time"
 )
 
 func (r *Repository) GetCommits() ([]Commit, error) {
@@ -25,6 +25,21 @@ func (r *Repository) GetCommits() ([]Commit, error) {
 	for _, ref := range refs {
 		r.traverseCommits(ref, visited, &commits)
 	}
+
+    branches, err := r.GetBranches()
+    if err != nil {
+        return nil, err
+    }
+
+    // TODO(rybkr): Eliminate wasteful iterations
+    for hash, branchList := range branches {
+        for i := range commits {
+            if commits[i].Hash == hash {
+                commits[i].Branches = branchList 
+                break
+            }
+        }
+    }
 
 	return commits, nil
 }

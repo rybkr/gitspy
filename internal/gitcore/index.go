@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"golang.org/x/term"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 )
 
@@ -15,13 +18,14 @@ type Index struct {
 	Entries []IndexEntry
 }
 
+// TODO(rybkr): Add support for merge status (0, 1, 2, 3)
 type IndexEntry struct {
 	Path     string
 	StatInfo FileStat
 }
 
 func (e *IndexEntry) String() string {
-	return fmt.Sprintf("%o %s 0 %s", e.StatInfo.Mode, e.StatInfo.Hash, e.Path)
+	return fmt.Sprintf("%o %s %d\t%s", e.StatInfo.Mode, e.StatInfo.Hash, 0, e.Path)
 }
 
 type FileStat struct {
@@ -36,17 +40,35 @@ type FileStat struct {
 }
 
 type Status struct {
-	Entries []StatusEntry
+	Entries []StatusEntry `json:"entries"`
 }
 
 type StatusEntry struct {
-	Path           string
-	IndexStatus    string
-	WorktreeStatus string
+	Path           string `json:"path"`
+	IndexStatus    string `json:"indexStatus"`
+	WorktreeStatus string `json:"worktreeStatus"`
 }
 
 func (e *StatusEntry) String() string {
-	return fmt.Sprintf("%1s%1s %s", e.IndexStatus, e.WorktreeStatus, e.Path)
+	indexColor, worktreeColor, resetColor := "", "", ""
+
+	if term.IsTerminal(int(os.Stdout.Fd())) { // Only use color when printing to terminal,
+		resetColor = "\x1b[0m" // disable it for pipes (`xxd`, `diff`, etc.)
+
+		switch e.IndexStatus {
+		case "A", "M", "D":
+			indexColor = "\x1b[32m"
+		case "?":
+			indexColor = "\x1b[31m"
+		}
+
+		switch e.WorktreeStatus {
+		case "?", "M", "D":
+			worktreeColor = "\x1b[31m"
+		}
+	}
+
+	return fmt.Sprintf("%s%1s%s%s%1s%s %s", indexColor, e.IndexStatus, resetColor, worktreeColor, e.WorktreeStatus, resetColor, e.Path)
 }
 
 func (r *Repository) GetIndex() (*Index, error) {
@@ -75,15 +97,54 @@ func (r *Repository) GetStatus() (*Status, error) {
 	}
 	indexStatusEntries := r.compareIndexWithHeadTree(index.Entries, headTree)
 	workTreeEntries := r.compareWorkingTreeWithIndex(index.Entries)
-    untrackedFiles := r.findUntrackedFiles(index.Entries)
+	untrackedFiles := r.findUntrackedFiles(index.Entries)
 
 	statusEntries = append(statusEntries, indexStatusEntries...)
 	statusEntries = append(statusEntries, workTreeEntries...)
-    statusEntries = append(statusEntries, untrackedFiles...)
+	statusEntries = append(statusEntries, untrackedFiles...)
+
+	// Need to address the problem where a file was modified, staged, then modified again
+	// This will result in two distinct status entries without special handling given the
+	// current architecture
+	seen := make(map[string]*StatusEntry)
+	for i := len(statusEntries) - 1; i >= 0; i-- {
+		entry := statusEntries[i]
+		if _, ok := seen[entry.Path]; !ok {
+			seen[entry.Path] = &statusEntries[i]
+		} else {
+			if seen[entry.Path].IndexStatus == "" {
+				seen[entry.Path].IndexStatus = entry.IndexStatus
+			}
+			if seen[entry.Path].WorktreeStatus == "" {
+				seen[entry.Path].WorktreeStatus = entry.WorktreeStatus
+			}
+			statusEntries = append(statusEntries[:i], statusEntries[i+1:]...)
+		}
+	}
 
 	return &Status{
 		Entries: statusEntries,
 	}, nil
+}
+
+func (r *Repository) PrintIndex() {
+	index, err := r.GetIndex()
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, entry := range index.Entries {
+		fmt.Println(entry.String())
+	}
+}
+
+func (r *Repository) PrintStatus() {
+	status, err := r.GetStatus()
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, entry := range status.Entries {
+		fmt.Println(entry.String())
+	}
 }
 
 // See: https://git-scm.com/docs/index-format#_the_git_index_file_has_the_following_format
@@ -239,14 +300,21 @@ func (r *Repository) compareIndexWithHeadTree(indexEntries []IndexEntry, headTre
 		}
 	}
 
+	deleted := make([]StatusEntry, 0)
 	for path, _ := range headTree {
 		if _, existsInIndex := indexMap[path]; !existsInIndex {
-			entries = append(entries, StatusEntry{
+			deleted = append(deleted, StatusEntry{
 				Path:        path,
 				IndexStatus: "D",
 			})
 		}
 	}
+
+	// Sort the map keys to avoid random ordering
+	sort.Slice(deleted, func(i, j int) bool {
+        return deleted[i].Path < deleted[j].Path
+    })
+	entries = append(entries, deleted...)
 
 	return entries
 }
