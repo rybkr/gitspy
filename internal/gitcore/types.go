@@ -30,5 +30,5 @@ type Commit struct {
 	Author   string    `json:"author"`
 	Date     string    `json:"date"`
 	Parents  []GitHash `json:"parents"`
-	Branches []GitHash `json:"branches,omitempty"`
+	Branches []string  `json:"branches,omitempty"`
 }

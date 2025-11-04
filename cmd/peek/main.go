@@ -18,6 +18,8 @@ func main() {
 		statusCmd(os.Args[2:])
 	case "ls-files":
 		lsFilesCmd(os.Args[2:])
+    case "branch":
+        branchCmd(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", os.Args[1])
 		printUsage()
@@ -46,4 +48,12 @@ func lsFilesCmd(args []string) {
 		log.Fatal(err)
 	}
 	repo.PrintIndex()
+}
+
+func branchCmd(args []string) {
+	repo, err := gitcore.NewRepository(".")
+	if err != nil {
+		log.Fatal(err)
+	}
+	repo.PrintBranches()
 }

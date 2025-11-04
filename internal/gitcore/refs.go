@@ -3,21 +3,77 @@ package gitcore
 import (
 	"bytes"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
-func (r *Repository) getAllRefs() ([]GitHash, error) {
-    var refs []GitHash
+func (r *Repository) GetBranches() (map[GitHash][]string, error) {
+	branches := make(map[GitHash][]string)
 
-    headPath := filepath.Join(r.Path, ".git", "HEAD")
-    headRef, err := r.resolveRef(headPath)
-    if err == nil && headRef != "" {
+	refsPath := filepath.Join(r.Path, ".git", "refs", "heads")
+	err := filepath.Walk(refsPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !info.IsDir() {
+			branchName := strings.TrimPrefix(path, refsPath+string(filepath.Separator))
+			hash, err := r.resolveRef(path)
+			if err == nil && hash != "" {
+				branches[hash] = append(branches[hash], branchName)
+			}
+		}
+		return nil
+	})
+
+	headPath := filepath.Join(r.Path, ".git", "HEAD")
+	data, err := os.ReadFile(headPath)
+	if err == nil {
+		content := strings.TrimSpace(string(data))
+		if strings.HasPrefix(content, "ref: refs/heads/") {
+			branchName := strings.TrimPrefix(content, "ref: refs/heads/")
+			hash, err := r.resolveRef(headPath)
+
+			if err == nil && hash != "" {
+				found := false
+				for i, b := range branches[hash] {
+					if b == branchName {
+						branches[hash][i] = "*" + branchName
+						found = true
+						break
+					}
+				}
+				if !found {
+					branches[hash] = append(branches[hash], "*"+branchName)
+				}
+			}
+		}
+	}
+
+	return branches, err
+}
+
+func (r *Repository) PrintBranches() {
+	branches, err := r.GetBranches()
+	if err != nil {
+		log.Fatal(err)
+	}
+    for k, v := range branches {
+        fmt.Println(k, v)
+    }
+}
+
+func (r *Repository) getAllRefs() ([]GitHash, error) {
+	var refs []GitHash
+
+	headPath := filepath.Join(r.Path, ".git", "HEAD")
+	headRef, err := r.resolveRef(headPath)
+	if err == nil && headRef != "" {
 		refs = append(refs, headRef)
 	}
 
-    refsPath := filepath.Join(r.Path, ".git", "refs", "heads")
+	refsPath := filepath.Join(r.Path, ".git", "refs", "heads")
 	err = filepath.Walk(refsPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
@@ -31,7 +87,7 @@ func (r *Repository) getAllRefs() ([]GitHash, error) {
 		return nil
 	})
 
-    tagsPath := filepath.Join(r.Path, ".git", "tags")
+	tagsPath := filepath.Join(r.Path, ".git", "tags")
 	filepath.Walk(tagsPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
@@ -45,7 +101,7 @@ func (r *Repository) getAllRefs() ([]GitHash, error) {
 		return nil
 	})
 
-    return refs, nil
+	return refs, nil
 }
 
 func (r *Repository) resolveRef(path string) (GitHash, error) {
@@ -133,9 +189,9 @@ func (r *Repository) readTreeRecursive(treeHash GitHash, prefix string) (map[str
 		content = content[nullIdx+1:]
 
 		hash, err := NewGitHash(content[:20])
-        if err != nil {
-            return nil, fmt.Errorf("parsing hash: %w", err)
-        }
+		if err != nil {
+			return nil, fmt.Errorf("parsing hash: %w", err)
+		}
 		content = content[20:]
 
 		fullPath := filepath.ToSlash(filepath.Join(prefix, name))
