@@ -108,6 +108,10 @@ function dragstarted(event) {
     if (!event.active) simulation.alphaTarget(0.3).restart()
     event.subject.fx = event.subject.x
     event.subject.fy = event.subject.y
+    if (event.subject.fx === null || event.subject.fy === null) {
+        event.subject.fx = event.subject.x
+        event.subject.fy = event.subject.y
+    }
 }
 
 function dragged(event) {
@@ -143,8 +147,16 @@ function createNodeElement(node) {
         .text(d => d.hash.substring(0, 7))
 
     nodeEl.on('click', (event, d) => {
+        nodeSelection.selectAll('g.node').each(function (n) {
+            if (n.hash === selectedCommit && n.hash !== d.hash) {
+                n.fx = null
+                n.fy = null
+            }
+        })
         selectedCommit = d.hash
         nodeSelection.selectAll('g.node').classed('selected', n => n.hash === selectedCommit)
+        d.fx = d.x
+        d.fy = d.y
         showCommitPopup(d, event)
         event.stopPropagation()
     })
@@ -172,64 +184,65 @@ function createBranchNodeElement(node) {
 function updateBranchNodes() {
     if (!branchNodeSelection) return
 
-    const branchNodeMap = new Map()
+    const branchToCommitMap = new Map()
     currentNodes.forEach(node => {
         if (node.branches && node.branches.length > 0) {
             node.branches.forEach(branchName => {
-                if (!branchNodeMap.has(branchName)) {
-                    const commitNode = currentNodes.find(n => n.hash === node.hash)
-                    branchNodeMap.set(branchName, {
-                        id: `branch-${branchName}`,
-                        type: 'branch',
-                        branchName,
-                        commitHash: node.hash,
-                        x: commitNode?.x || Math.random() * 400,
-                        y: commitNode?.y ? commitNode.y - 60 : Math.random() * 400
-                    })
-                } else {
-                    const existing = branchNodeMap.get(branchName)
-                    existing.commitHash = node.hash
-                    const commitNode = currentNodes.find(n => n.hash === node.hash)
-                    if (commitNode && (!existing.x || !existing.y)) {
-                        existing.x = commitNode.x
-                        existing.y = commitNode.y - 60
-                    }
-                }
+                branchToCommitMap.set(branchName, node.hash)
             })
         }
     })
 
-    const newBranchNodes = Array.from(branchNodeMap.values())
     const existingBranchMap = new Map(currentBranchNodes.map(b => [b.id, b]))
 
-    newBranchNodes.forEach(branchNode => {
-        const existing = existingBranchMap.get(branchNode.id)
+    branchToCommitMap.forEach((commitHash, branchName) => {
+        const branchId = `branch-${branchName}`
+        const existing = existingBranchMap.get(branchId)
+
         if (existing) {
-            existing.commitHash = branchNode.commitHash
-            const commitNode = currentNodes.find(n => n.hash === branchNode.commitHash)
+            existing.commitHash = commitHash
+            const commitNode = currentNodes.find(n => n.hash === commitHash)
             if (commitNode) {
                 existing.x = commitNode.x
                 existing.y = commitNode.y - 60
             }
+        } else {
+            const commitNode = currentNodes.find(n => n.hash === commitHash)
+            const newBranchNode = {
+                id: branchId,
+                type: 'branch',
+                branchName,
+                commitHash,
+                x: commitNode?.x || Math.random() * 400,
+                y: commitNode?.y ? commitNode.y - 60 : Math.random() * 400
+            }
+            currentBranchNodes.push(newBranchNode)
+
+            createBranchNodeElement(
+                branchNodeSelection.selectAll('g.branch-node')
+                    .data([newBranchNode], d => d.id)
+                    .enter()
+            )
         }
     })
-
-    const branchesToAdd = newBranchNodes.filter(b => !existingBranchMap.has(b.id))
-
-    if (branchesToAdd.length > 0) {
-        currentBranchNodes.push(...branchesToAdd)
-
-        createBranchNodeElement(
-            branchNodeSelection.selectAll('g.branch-node')
-                .data(currentBranchNodes, d => d.id)
-                .enter()
-        )
-    }
 
     branchNodeSelection.selectAll('g.branch-node')
         .data(currentBranchNodes, d => d.id)
         .exit()
         .remove()
+
+    currentBranchNodes.forEach(branch => {
+        if (!branchToCommitMap.has(branch.branchName)) {
+            const index = currentBranchNodes.indexOf(branch)
+            if (index > -1) {
+                currentBranchNodes.splice(index, 1)
+            }
+        }
+    })
+
+    currentLinks = currentLinks.filter(l => l.type !== 'branch-link')
+
+    linkSelection.selectAll('line.branch-link').remove()
 
     const branchLinks = currentBranchNodes.map(branch => {
         if (!branch.commitHash) return null
@@ -240,27 +253,22 @@ function updateBranchNodes() {
         }
     }).filter(Boolean)
 
-    const existingBranchLinkKeys = new Set(
-        currentLinks.filter(l => l.type === 'branch-link').map(l => `${l.source}-${l.target}`)
-    )
+    currentLinks.push(...branchLinks)
 
-    const newBranchLinks = branchLinks.filter(l => !existingBranchLinkKeys.has(`${l.source}-${l.target}`))
-
-    if (newBranchLinks.length > 0) {
-        currentLinks.push(...newBranchLinks)
+    if (branchLinks.length > 0) {
+        const branchLinkKeys = new Set(branchLinks.map(l => `${l.source}-${l.target}`))
+        const uniqueBranchLinks = branchLinks.filter((l, i, arr) => {
+            const key = `${l.source}-${l.target}`
+            return branchLinkKeys.has(key) && arr.findIndex(x => `${x.source}-${x.target}` === key) === i
+        })
 
         linkSelection.selectAll('line.branch-link')
-            .data(currentLinks.filter(l => l.type === 'branch-link'), d => `${d.source}-${d.target}`)
+            .data(uniqueBranchLinks, d => `${d.source}-${d.target}`)
             .enter()
             .append('line')
             .attr('class', 'link branch-link')
             .attr('marker-end', 'url(#arrowhead)')
     }
-
-    linkSelection.selectAll('line.branch-link')
-        .data(currentLinks.filter(l => l.type === 'branch-link'), d => `${d.source}-${d.target}`)
-        .exit()
-        .remove()
 }
 
 function initializeSimulation(width, height) {
@@ -360,8 +368,8 @@ function updateGraph(data) {
         currentNodes = newNodes
         currentLinks = newLinks
 
-        linkSelection.selectAll('line')
-            .data(currentLinks, d => `${d.source}-${d.target}`)
+        linkSelection.selectAll('line:not(.branch-link)')
+            .data(currentLinks.filter(l => !l.type || l.type !== 'branch-link'), d => `${d.source}-${d.target}`)
             .enter()
             .append('line')
             .attr('class', 'link')
@@ -396,8 +404,8 @@ function updateGraph(data) {
         currentNodes.push(...newNodesToAdd)
         currentLinks.push(...newLinksToAdd)
 
-        linkSelection.selectAll('line')
-            .data(currentLinks, d => `${d.source}-${d.target}`)
+        linkSelection.selectAll('line:not(.branch-link)')
+            .data(currentLinks.filter(l => !l.type || l.type !== 'branch-link'), d => `${d.source}-${d.target}`)
             .enter()
             .append('line')
             .attr('class', 'link')

@@ -342,6 +342,7 @@ body.resizing #sidebar {
     fill: var(--accent);
     filter: drop-shadow(0 0 8px rgba(59, 130, 246, 0.5));
     transform: scale(1.15);
+    transform-origin: center;
 }
 
 #graph svg .node:hover circle {
