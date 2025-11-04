@@ -27,6 +27,22 @@ body {
         --accent: #60a5fa;
         --link: #51555a;
     }
+
+    #graph svg .node circle {
+        filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4));
+    }
+
+    #graph svg .node.branch circle {
+        filter: drop-shadow(0 2px 6px rgba(96, 165, 250, 0.4));
+    }
+
+    #graph svg .node.selected circle {
+        filter: drop-shadow(0 0 8px rgba(96, 165, 250, 0.6));
+    }
+
+    #graph svg .node.branch:hover circle {
+        filter: drop-shadow(0 2px 8px rgba(96, 165, 250, 0.6));
+    }
 }
 
 body {
@@ -295,32 +311,75 @@ body.resizing #sidebar {
 
 #graph svg .link {
     stroke: var(--link);
-    stroke-width: 2;
+    stroke-width: 1.5;
     fill: none;
+    opacity: 0.6;
+    transition: opacity 0.2s ease, stroke-width 0.2s ease;
+}
+
+#graph svg .link:hover {
+    opacity: 1;
+    stroke-width: 2;
+}
+
+#graph svg .node {
+    cursor: pointer;
 }
 
 #graph svg .node circle {
     fill: var(--muted);
+    stroke: var(--bg);
+    stroke-width: 2;
+    transition: fill 0.2s ease, stroke-width 0.2s ease, filter 0.2s ease, transform 0.2s ease;
+    cursor: pointer;
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
+    transform-origin: center;
 }
 
 #graph svg .node.branch circle {
     fill: var(--accent);
+    stroke: var(--accent);
+    filter: drop-shadow(0 2px 6px rgba(59, 130, 246, 0.3));
 }
 
 #graph svg .node.selected circle {
     stroke: var(--accent);
     stroke-width: 3;
     fill: var(--accent);
+    filter: drop-shadow(0 0 8px rgba(59, 130, 246, 0.5));
+    transform: scale(1.15);
+}
+
+#graph svg .node:hover circle {
+    stroke-width: 3;
+    transform: scale(1.2);
+}
+
+#graph svg .node.branch:hover circle {
+    filter: drop-shadow(0 2px 8px rgba(59, 130, 246, 0.5));
 }
 
 #graph svg .node-label {
-    font-size: 11px;
-    fill: var(--fg);
+    font-size: 10px;
+    fill: var(--muted);
     stroke: var(--bg);
-    stroke-width: 3px;
+    stroke-width: 4px;
     stroke-linejoin: round;
     paint-order: stroke fill;
     pointer-events: none;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-weight: 500;
+    transition: fill 0.2s ease, font-size 0.2s ease;
+}
+
+#graph svg .node.selected .node-label {
+    fill: var(--accent);
+    font-weight: 600;
+    font-size: 11px;
+}
+
+#graph svg .node.branch .node-label {
+    fill: var(--accent);
 }
 
 .popup-tooltip {

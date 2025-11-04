@@ -131,10 +131,12 @@ function createNodeElement(node) {
         .attr('class', getNodeClass)
         .call(d3.drag().on('start', dragstarted).on('drag', dragged).on('end', dragended))
 
-    nodeEl.append('circle').attr('r', 6)
+    nodeEl.append('circle')
+        .attr('r', 7)
+        .attr('class', 'node-circle')
 
     nodeEl.append('text')
-        .attr('dy', 20)
+        .attr('dy', 22)
         .attr('text-anchor', 'middle')
         .attr('class', 'node-label')
         .text(d => d.hash.substring(0, 7))
@@ -156,13 +158,14 @@ function initializeSimulation(width, height) {
     const linkColor = getComputedStyle(document.documentElement).getPropertyValue('--link').trim() || '#ccd2db'
     svg.append('defs').append('marker')
         .attr('id', 'arrowhead')
-        .attr('markerWidth', 6)
-        .attr('markerHeight', 6)
-        .attr('refX', 5.5)
-        .attr('refY', 2)
+        .attr('markerWidth', 8)
+        .attr('markerHeight', 8)
+        .attr('refX', 7)
+        .attr('refY', 2.5)
         .attr('orient', 'auto')
+        .attr('markerUnits', 'strokeWidth')
         .append('path')
-        .attr('d', 'M0,0 L0,4 L6,2 z')
+        .attr('d', 'M0,0 L0,5 L8,2.5 z')
         .attr('fill', linkColor)
 
     graphContainer = svg.append('g').attr('class', 'graph-container')
@@ -170,15 +173,15 @@ function initializeSimulation(width, height) {
     nodeSelection = graphContainer.append('g').attr('class', 'nodes')
 
     simulation = d3.forceSimulation()
-        .force('link', d3.forceLink().id(d => d.id).distance(32))
-        .force('charge', d3.forceManyBody().strength(-128))
+        .force('link', d3.forceLink().id(d => d.id).distance(50))
+        .force('charge', d3.forceManyBody().strength(-150))
         .force('center', d3.forceCenter(width / 2, height / 2))
-        .force('collision', d3.forceCollide().radius(20))
+        .force('collision', d3.forceCollide().radius(24))
 
     simulation.on('tick', () => {
         linkSelection.selectAll('line').each(function (d) {
-            const startPoint = getLineStartPoint(d.source, d.target, 6)
-            const endPoint = getLinePointOnCircle(d.source, d.target, 6)
+            const startPoint = getLineStartPoint(d.source, d.target, 7)
+            const endPoint = getLinePointOnCircle(d.source, d.target, 7)
             d3.select(this)
                 .attr('x1', startPoint.x).attr('y1', startPoint.y)
                 .attr('x2', endPoint.x).attr('y2', endPoint.y)
@@ -217,7 +220,6 @@ function updateGraph(data) {
     graphData = data
     const rect = document.getElementById('graph').getBoundingClientRect()
     const { width, height } = rect
-    const hasExistingNodes = !(!currentNodes);
 
     const newNodes = data.nodes.map(d => ({
         id: d.hash,
@@ -293,7 +295,7 @@ function updateGraph(data) {
         simulation.nodes(currentNodes)
         simulation.force('link').links(currentLinks)
         simulation.force('center', d3.forceCenter(width / 2, height / 2))
-        simulation.alpha(hasExistingNodes ? 0.25 : 1).restart()
+        simulation.alpha(1).restart()
     }
 }
 
@@ -432,7 +434,7 @@ async function fetchGraph() {
     try {
         const res = await fetch('/api/graph', { headers: { 'Accept': 'application/json' } })
         if (!res.ok) return
-        //updateGraph(await res.json())
+        updateGraph(await res.json())
     } catch (_) { }
 }
 
