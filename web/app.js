@@ -21,8 +21,10 @@ let popupCommit = null
 let graphContainer = null
 let currentNodes = []
 let currentLinks = []
+let currentBranchNodes = []
 let nodeSelection = null
 let linkSelection = null
+let branchNodeSelection = null
 
 function updatePopupPosition() {
     if (!popupCommit || !popupOverlay?.classList.contains('visible') || !graphContainer) return
@@ -121,7 +123,6 @@ function dragended(event) {
 
 function getNodeClass(d) {
     let classes = 'node'
-    if (d.branches?.length > 0) classes += ' branch'
     if (selectedCommit === d.hash) classes += ' selected'
     return classes
 }
@@ -151,6 +152,117 @@ function createNodeElement(node) {
     return nodeEl
 }
 
+function createBranchNodeElement(node) {
+    const branchEl = node.append('g')
+        .attr('class', 'branch-node')
+
+    branchEl.append('circle')
+        .attr('r', 5)
+        .attr('class', 'branch-circle')
+
+    branchEl.append('text')
+        .attr('dy', -10)
+        .attr('text-anchor', 'middle')
+        .attr('class', 'branch-name')
+        .text(d => d.branchName)
+
+    return branchEl
+}
+
+function updateBranchNodes() {
+    if (!branchNodeSelection) return
+
+    const branchNodeMap = new Map()
+    currentNodes.forEach(node => {
+        if (node.branches && node.branches.length > 0) {
+            node.branches.forEach(branchName => {
+                if (!branchNodeMap.has(branchName)) {
+                    const commitNode = currentNodes.find(n => n.hash === node.hash)
+                    branchNodeMap.set(branchName, {
+                        id: `branch-${branchName}`,
+                        type: 'branch',
+                        branchName,
+                        commitHash: node.hash,
+                        x: commitNode?.x || Math.random() * 400,
+                        y: commitNode?.y ? commitNode.y - 60 : Math.random() * 400
+                    })
+                } else {
+                    const existing = branchNodeMap.get(branchName)
+                    existing.commitHash = node.hash
+                    const commitNode = currentNodes.find(n => n.hash === node.hash)
+                    if (commitNode && (!existing.x || !existing.y)) {
+                        existing.x = commitNode.x
+                        existing.y = commitNode.y - 60
+                    }
+                }
+            })
+        }
+    })
+
+    const newBranchNodes = Array.from(branchNodeMap.values())
+    const existingBranchMap = new Map(currentBranchNodes.map(b => [b.id, b]))
+
+    newBranchNodes.forEach(branchNode => {
+        const existing = existingBranchMap.get(branchNode.id)
+        if (existing) {
+            existing.commitHash = branchNode.commitHash
+            const commitNode = currentNodes.find(n => n.hash === branchNode.commitHash)
+            if (commitNode) {
+                existing.x = commitNode.x
+                existing.y = commitNode.y - 60
+            }
+        }
+    })
+
+    const branchesToAdd = newBranchNodes.filter(b => !existingBranchMap.has(b.id))
+
+    if (branchesToAdd.length > 0) {
+        currentBranchNodes.push(...branchesToAdd)
+
+        createBranchNodeElement(
+            branchNodeSelection.selectAll('g.branch-node')
+                .data(currentBranchNodes, d => d.id)
+                .enter()
+        )
+    }
+
+    branchNodeSelection.selectAll('g.branch-node')
+        .data(currentBranchNodes, d => d.id)
+        .exit()
+        .remove()
+
+    const branchLinks = currentBranchNodes.map(branch => {
+        if (!branch.commitHash) return null
+        return {
+            source: branch.id,
+            target: branch.commitHash,
+            type: 'branch-link'
+        }
+    }).filter(Boolean)
+
+    const existingBranchLinkKeys = new Set(
+        currentLinks.filter(l => l.type === 'branch-link').map(l => `${l.source}-${l.target}`)
+    )
+
+    const newBranchLinks = branchLinks.filter(l => !existingBranchLinkKeys.has(`${l.source}-${l.target}`))
+
+    if (newBranchLinks.length > 0) {
+        currentLinks.push(...newBranchLinks)
+
+        linkSelection.selectAll('line.branch-link')
+            .data(currentLinks.filter(l => l.type === 'branch-link'), d => `${d.source}-${d.target}`)
+            .enter()
+            .append('line')
+            .attr('class', 'link branch-link')
+            .attr('marker-end', 'url(#arrowhead)')
+    }
+
+    linkSelection.selectAll('line.branch-link')
+        .data(currentLinks.filter(l => l.type === 'branch-link'), d => `${d.source}-${d.target}`)
+        .exit()
+        .remove()
+}
+
 function initializeSimulation(width, height) {
     svg.selectAll('*').remove()
     svg.attr('width', width).attr('height', height)
@@ -171,23 +283,31 @@ function initializeSimulation(width, height) {
     graphContainer = svg.append('g').attr('class', 'graph-container')
     linkSelection = graphContainer.append('g').attr('class', 'links')
     nodeSelection = graphContainer.append('g').attr('class', 'nodes')
+    branchNodeSelection = graphContainer.append('g').attr('class', 'branch-nodes')
 
     simulation = d3.forceSimulation()
-        .force('link', d3.forceLink().id(d => d.id).distance(50))
+        .force('link', d3.forceLink().id(d => d.id || d.hash).distance(50))
         .force('charge', d3.forceManyBody().strength(-150))
         .force('center', d3.forceCenter(width / 2, height / 2))
         .force('collision', d3.forceCollide().radius(24))
 
     simulation.on('tick', () => {
         linkSelection.selectAll('line').each(function (d) {
-            const startPoint = getLineStartPoint(d.source, d.target, 7)
-            const endPoint = getLinePointOnCircle(d.source, d.target, 7)
+            const sourceIsBranch = (typeof d.source === 'object' && d.source.type === 'branch') ||
+                (typeof d.source === 'string' && d.source.startsWith('branch-'))
+            const targetIsBranch = (typeof d.target === 'object' && d.target.type === 'branch') ||
+                (typeof d.target === 'string' && d.target.startsWith('branch-'))
+            const sourceRadius = sourceIsBranch ? 5 : 7
+            const targetRadius = targetIsBranch ? 5 : 7
+            const startPoint = getLineStartPoint(d.source, d.target, sourceRadius)
+            const endPoint = getLinePointOnCircle(d.source, d.target, targetRadius)
             d3.select(this)
                 .attr('x1', startPoint.x).attr('y1', startPoint.y)
                 .attr('x2', endPoint.x).attr('y2', endPoint.y)
         })
 
         nodeSelection.selectAll('g.node').attr('transform', d => `translate(${d.x},${d.y})`)
+        branchNodeSelection.selectAll('g.branch-node').attr('transform', d => `translate(${d.x},${d.y})`)
 
         if (popupCommit) {
             const currentCommit = currentNodes.find(n => n.hash === popupCommit.hash)
@@ -253,7 +373,10 @@ function updateGraph(data) {
                 .enter()
         )
 
-        simulation.nodes(currentNodes)
+        updateBranchNodes()
+
+        const allNodes = [...currentNodes, ...currentBranchNodes]
+        simulation.nodes(allNodes)
         simulation.force('link').links(currentLinks)
         simulation.alpha(1).restart()
         return
@@ -292,7 +415,10 @@ function updateGraph(data) {
             .data(currentNodes, d => d.hash)
             .attr('class', getNodeClass)
 
-        simulation.nodes(currentNodes)
+        updateBranchNodes()
+
+        const allNodes = [...currentNodes, ...currentBranchNodes]
+        simulation.nodes(allNodes)
         simulation.force('link').links(currentLinks)
         simulation.force('center', d3.forceCenter(width / 2, height / 2))
         simulation.alpha(1).restart()

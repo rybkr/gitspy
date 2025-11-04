@@ -32,16 +32,14 @@ body {
         filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4));
     }
 
-    #graph svg .node.branch circle {
-        filter: drop-shadow(0 2px 6px rgba(96, 165, 250, 0.4));
-    }
-
     #graph svg .node.selected circle {
         filter: drop-shadow(0 0 8px rgba(96, 165, 250, 0.6));
     }
 
-    #graph svg .node.branch:hover circle {
-        filter: drop-shadow(0 2px 8px rgba(96, 165, 250, 0.6));
+    #graph svg .branch-node .branch-circle {
+        stroke: rgba(255, 255, 255, 0.9);
+        stroke-width: 3;
+        filter: drop-shadow(0 2px 4px rgba(96, 165, 250, 0.4));
     }
 }
 
@@ -336,11 +334,7 @@ body.resizing #sidebar {
     transform-origin: center;
 }
 
-#graph svg .node.branch circle {
-    fill: var(--accent);
-    stroke: var(--accent);
-    filter: drop-shadow(0 2px 6px rgba(59, 130, 246, 0.3));
-}
+
 
 #graph svg .node.selected circle {
     stroke: var(--accent);
@@ -352,12 +346,10 @@ body.resizing #sidebar {
 
 #graph svg .node:hover circle {
     stroke-width: 3;
-    transform: scale(1.2);
+    filter: drop-shadow(0 0 6px rgba(59, 130, 246, 0.4));
 }
 
-#graph svg .node.branch:hover circle {
-    filter: drop-shadow(0 2px 8px rgba(59, 130, 246, 0.5));
-}
+
 
 #graph svg .node-label {
     font-size: 10px;
@@ -378,8 +370,39 @@ body.resizing #sidebar {
     font-size: 11px;
 }
 
-#graph svg .node.branch .node-label {
+#graph svg .branch-nodes {
+    pointer-events: none;
+}
+
+#graph svg .branch-node {
+    pointer-events: none;
+}
+
+#graph svg .branch-node .branch-circle {
     fill: var(--accent);
+    stroke: var(--bg);
+    stroke-width: 3;
+    filter: drop-shadow(0 2px 4px rgba(59, 130, 246, 0.3));
+    transition: fill 0.2s ease, stroke-width 0.2s ease, filter 0.2s ease;
+}
+
+#graph svg .branch-node .branch-name {
+    font-size: 11px;
+    font-weight: 600;
+    fill: var(--accent);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    stroke: var(--bg);
+    stroke-width: 3px;
+    stroke-linejoin: round;
+    paint-order: stroke fill;
+    pointer-events: none;
+}
+
+#graph svg .link.branch-link {
+    stroke: var(--accent);
+    stroke-width: 2;
+    stroke-opacity: 0.6;
+    stroke-dasharray: 4, 2;
 }
 
 .popup-tooltip {
