@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 )
 
@@ -299,14 +300,21 @@ func (r *Repository) compareIndexWithHeadTree(indexEntries []IndexEntry, headTre
 		}
 	}
 
+	deleted := make([]StatusEntry, 0)
 	for path, _ := range headTree {
 		if _, existsInIndex := indexMap[path]; !existsInIndex {
-			entries = append(entries, StatusEntry{
+			deleted = append(deleted, StatusEntry{
 				Path:        path,
 				IndexStatus: "D",
 			})
 		}
 	}
+
+	// Sort the map keys to avoid random ordering
+	sort.Slice(deleted, func(i, j int) bool {
+        return deleted[i].Path < deleted[j].Path
+    })
+	entries = append(entries, deleted...)
 
 	return entries
 }
