@@ -25,9 +25,23 @@
         </aside>
         <section id="graph">
             <button id="sidebarRestore" class="sidebar-restore" title="Restore sidebar">☰</button>
-            <canvas id="graphCanvas"></canvas>
+            <svg id="graphSvg"></svg>
         </section>
     </main>
+    <div id="commitPopup" class="popup-tooltip">
+        <div class="popup-content">
+            <div class="popup-header">
+                <div class="popup-hash" id="popupHash"></div>
+                <div class="popup-branches" id="popupBranches"></div>
+            </div>
+            <div class="popup-message" id="popupMessage"></div>
+            <div class="popup-meta">
+                <div class="popup-author" id="popupAuthor"></div>
+                <div class="popup-date" id="popupDate"></div>
+            </div>
+        </div>
+    </div>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
     <script type="module" src="./app.js"></script>
 </body>
 

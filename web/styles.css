@@ -14,6 +14,7 @@ body {
     --border: #e5e7eb;
     --panel: #f8fafc;
     --accent: #3b82f6;
+    --link: #ccd2db;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -24,6 +25,7 @@ body {
         --border: #1f2937;
         --panel: #0e131a;
         --accent: #60a5fa;
+        --link: #51555a;
     }
 }
 
@@ -281,10 +283,122 @@ body.resizing #sidebar {
     min-width: 0;
 }
 
-#graph canvas {
+#graph svg {
     width: 100%;
     height: 100%;
     display: block;
+}
+
+#graph svg .node {
+    cursor: pointer;
+}
+
+#graph svg .link {
+    stroke: var(--link);
+    stroke-width: 2;
+    fill: none;
+}
+
+#graph svg .node circle {
+    fill: var(--muted);
+}
+
+#graph svg .node.branch circle {
+    fill: var(--accent);
+}
+
+#graph svg .node.selected circle {
+    stroke: var(--accent);
+    stroke-width: 3;
+    fill: var(--accent);
+}
+
+#graph svg .node-label {
+    font-size: 11px;
+    fill: var(--fg);
+    stroke: var(--bg);
+    stroke-width: 3px;
+    stroke-linejoin: round;
+    paint-order: stroke fill;
+    pointer-events: none;
+}
+
+.popup-tooltip {
+    position: fixed;
+    display: none;
+    z-index: 1000;
+    pointer-events: none;
+}
+
+.popup-tooltip.visible {
+    display: block;
+}
+
+.popup-content {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    max-width: 320px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    pointer-events: auto;
+}
+
+.popup-header {
+    margin-bottom: 8px;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+.popup-hash {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 2px;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    overflow: hidden;
+}
+
+.popup-branches {
+    font-size: 12px;
+    color: var(--accent);
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    overflow: hidden;
+}
+
+.popup-message {
+    font-size: 13px;
+    line-height: 1.4;
+    margin-bottom: 8px;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    max-height: 150px;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+.popup-meta {
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.4;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+.popup-author {
+    margin-bottom: 2px;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    overflow: hidden;
+}
+
+.popup-date {
+    font-size: 10px;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    overflow: hidden;
 }
 
 header,
