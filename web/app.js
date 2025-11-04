@@ -6,6 +6,7 @@ const sidebarRestore = document.getElementById('sidebarRestore')
 const sidebarResize = document.getElementById('sidebarResize')
 const repoNameEl = document.getElementById('repoName')
 const repoPathEl = document.getElementById('repoPath')
+const statusBodyEl = document.getElementById('statusBody')
 
 function resizeCanvas() {
     const parent = canvas.parentElement
@@ -102,6 +103,49 @@ function updateRepositoryInfo(data) {
     }
 }
 
+function updateStatus(data) {
+    if (!statusBodyEl) return
+    
+    if (!data || !Array.isArray(data.entries) || data.entries.length === 0) {
+        statusBodyEl.innerHTML = '<div style="color:var(--muted)">Working tree clean</div>'
+        return
+    }
+    
+    const fragment = document.createDocumentFragment()
+    data.entries.forEach(entry => {
+        const entryDiv = document.createElement('div')
+        entryDiv.className = 'status-entry'
+        
+        const flagsDiv = document.createElement('div')
+        flagsDiv.className = 'status-flags'
+        
+        if (entry.indexStatus) {
+            const indexFlag = document.createElement('div')
+            indexFlag.className = 'status-flag index'
+            indexFlag.textContent = entry.indexStatus || ' '
+            flagsDiv.appendChild(indexFlag)
+        }
+        
+        if (entry.worktreeStatus) {
+            const worktreeFlag = document.createElement('div')
+            worktreeFlag.className = 'status-flag worktree'
+            worktreeFlag.textContent = entry.worktreeStatus || ' '
+            flagsDiv.appendChild(worktreeFlag)
+        }
+        
+        const pathDiv = document.createElement('div')
+        pathDiv.className = 'status-path'
+        pathDiv.textContent = entry.path || ''
+        
+        entryDiv.appendChild(flagsDiv)
+        entryDiv.appendChild(pathDiv)
+        fragment.appendChild(entryDiv)
+    })
+    
+    statusBodyEl.innerHTML = ''
+    statusBodyEl.appendChild(fragment)
+}
+
 async function fetchRepositoryInfo() {
     try {
         const res = await fetch('/api/repository', { headers: { 'Accept': 'application/json' } })
@@ -110,6 +154,17 @@ async function fetchRepositoryInfo() {
         updateRepositoryInfo(data)
     } catch (_) {
         // ignore for now; page stays with placeholders
+    }
+}
+
+async function fetchStatus() {
+    try {
+        const res = await fetch('/api/status', { headers: { 'Accept': 'application/json' } })
+        if (!res.ok) return
+        const data = await res.json()
+        updateStatus(data)
+    } catch (_) {
+        // ignore for now
     }
 }
 
@@ -135,6 +190,8 @@ function connectWebSocket() {
             const message = JSON.parse(event.data)
             if (message && message.type === 'repository' && message.data) {
                 updateRepositoryInfo(message.data)
+            } else if (message && message.type === 'status' && message.data) {
+                updateStatus(message.data)
             }
         } catch (err) {
             // Ignore parse errors
@@ -154,4 +211,5 @@ function connectWebSocket() {
 }
 
 fetchRepositoryInfo()
+fetchStatus()
 connectWebSocket()

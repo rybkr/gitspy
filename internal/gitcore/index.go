@@ -39,33 +39,33 @@ type FileStat struct {
 }
 
 type Status struct {
-	Entries []StatusEntry
+	Entries []StatusEntry `json:"entries"`
 }
 
 type StatusEntry struct {
-	Path           string
-	IndexStatus    string
-	WorktreeStatus string
+	Path           string `json:"path"`
+	IndexStatus    string `json:"indexStatus"`
+	WorktreeStatus string `json:"worktreeStatus"`
 }
 
 func (e *StatusEntry) String() string {
 	indexColor, worktreeColor, resetColor := "", "", ""
 
-    if term.IsTerminal(int(os.Stdout.Fd())) { // Only use color when printing to terminal,
-        resetColor = "\x1b[0m"                // disable it for pipes (`xxd`, `diff`, etc.)
+	if term.IsTerminal(int(os.Stdout.Fd())) { // Only use color when printing to terminal,
+		resetColor = "\x1b[0m" // disable it for pipes (`xxd`, `diff`, etc.)
 
-        switch e.IndexStatus {
-        case "A", "M", "D":
-            indexColor = "\x1b[32m"
-        case "?":
-            indexColor = "\x1b[31m"
-        }
+		switch e.IndexStatus {
+		case "A", "M", "D":
+			indexColor = "\x1b[32m"
+		case "?":
+			indexColor = "\x1b[31m"
+		}
 
-        switch e.WorktreeStatus {
-        case "?", "M", "D":
-            worktreeColor = "\x1b[31m"
-        }
-    }
+		switch e.WorktreeStatus {
+		case "?", "M", "D":
+			worktreeColor = "\x1b[31m"
+		}
+	}
 
 	return fmt.Sprintf("%s%1s%s%s%1s%s %s", indexColor, e.IndexStatus, resetColor, worktreeColor, e.WorktreeStatus, resetColor, e.Path)
 }
