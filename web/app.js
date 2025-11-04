@@ -267,6 +267,7 @@ function updateGraph(data) {
     const newLinksToAdd = newLinks.filter(l => !existingLinkKeys.has(`${l.source}-${l.target}`))
 
     if (newNodesToAdd.length > 0 || newLinksToAdd.length > 0) {
+        const hasExistingNodes = currentNodes.length > 0
         currentNodes.push(...newNodesToAdd)
         currentLinks.push(...newLinksToAdd)
 
@@ -292,7 +293,7 @@ function updateGraph(data) {
         simulation.nodes(currentNodes)
         simulation.force('link').links(currentLinks)
         simulation.force('center', d3.forceCenter(width / 2, height / 2))
-        simulation.alpha(1).restart()
+        simulation.alpha(hasExistingNodes ? 0.25 : 1).restart()
     }
 }
 
