@@ -151,12 +151,18 @@ function createNodeElement(node) {
             if (n.hash === selectedCommit && n.hash !== d.hash) {
                 n.fx = null
                 n.fy = null
+                d3.select(this).select('circle').attr('r', 7)
             }
         })
-        selectedCommit = d.hash
-        nodeSelection.selectAll('g.node').classed('selected', n => n.hash === selectedCommit)
         d.fx = d.x
         d.fy = d.y
+        simulation.alphaTarget(0)
+        selectedCommit = d.hash
+        nodeSelection.selectAll('g.node').each(function (n) {
+            const isSelected = n.hash === selectedCommit
+            d3.select(this).classed('selected', isSelected)
+            d3.select(this).select('circle').attr('r', isSelected ? 8 : 7)
+        })
         showCommitPopup(d, event)
         event.stopPropagation()
     })
@@ -337,6 +343,17 @@ function initializeSimulation(width, height) {
     svg.call(zoom)
     svg.on('click', (event) => {
         if (event.target === svg.node() || event.target.tagName === 'line') {
+            if (selectedCommit) {
+                nodeSelection.selectAll('g.node').each(function (n) {
+                    if (n.hash === selectedCommit) {
+                        n.fx = null
+                        n.fy = null
+                        d3.select(this).classed('selected', false)
+                        d3.select(this).select('circle').attr('r', 7)
+                    }
+                })
+                selectedCommit = null
+            }
             hideCommitPopup()
         }
     })
