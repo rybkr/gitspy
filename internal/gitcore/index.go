@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"golang.org/x/term"
 	"io"
 	"log"
 	"os"
@@ -16,13 +17,14 @@ type Index struct {
 	Entries []IndexEntry
 }
 
+// TODO(rybkr): Add support for merge status (0, 1, 2, 3)
 type IndexEntry struct {
 	Path     string
 	StatInfo FileStat
 }
 
 func (e *IndexEntry) String() string {
-	return fmt.Sprintf("%o %s 0 %s", e.StatInfo.Mode, e.StatInfo.Hash, e.Path)
+	return fmt.Sprintf("%o %s %d\t%s", e.StatInfo.Mode, e.StatInfo.Hash, 0, e.Path)
 }
 
 type FileStat struct {
@@ -47,21 +49,25 @@ type StatusEntry struct {
 }
 
 func (e *StatusEntry) String() string {
-    indexColor, worktreeColor := "\x1b[0m", "\x1b[0m"
+	indexColor, worktreeColor, resetColor := "", "", ""
 
-    switch e.IndexStatus {
-    case "A", "M", "D":
-        indexColor = "\x1b[32m"
-    case "?":
-        indexColor = "\x1b[31m"
-    }
-    
-    switch e.WorktreeStatus {
-    case "?", "M", "D":
-        worktreeColor = "\x1b[31m"
+    if term.IsTerminal(int(os.Stdout.Fd())) { // Only use color when printing to terminal,
+        resetColor = "\x1b[0m"                // disable it for pipes (`xxd`, `diff`, etc.)
+
+        switch e.IndexStatus {
+        case "A", "M", "D":
+            indexColor = "\x1b[32m"
+        case "?":
+            indexColor = "\x1b[31m"
+        }
+
+        switch e.WorktreeStatus {
+        case "?", "M", "D":
+            worktreeColor = "\x1b[31m"
+        }
     }
 
-	return fmt.Sprintf("%s%1s\x1b[0m%s%1s\x1b[0m %s", indexColor, e.IndexStatus, worktreeColor, e.WorktreeStatus, e.Path)
+	return fmt.Sprintf("%s%1s%s%s%1s%s %s", indexColor, e.IndexStatus, resetColor, worktreeColor, e.WorktreeStatus, resetColor, e.Path)
 }
 
 func (r *Repository) GetIndex() (*Index, error) {
@@ -96,28 +102,38 @@ func (r *Repository) GetStatus() (*Status, error) {
 	statusEntries = append(statusEntries, workTreeEntries...)
 	statusEntries = append(statusEntries, untrackedFiles...)
 
-    // Need to address the problem where a file was modified, staged, then modified again
-    // This will result in two distinct status entries without special handling given the
-    // current architecture
-    seen := make(map[string]*StatusEntry)
-    for i := len(statusEntries) - 1; i >= 0; i-- {
-        entry := statusEntries[i]
-        if _, ok := seen[entry.Path]; !ok {
-            seen[entry.Path] = &statusEntries[i]
-        } else {
-            if seen[entry.Path].IndexStatus == "" {
-                seen[entry.Path].IndexStatus = entry.IndexStatus
-            }
-            if seen[entry.Path].WorktreeStatus == "" {
-                seen[entry.Path].WorktreeStatus = entry.WorktreeStatus
-            }
-            statusEntries = append(statusEntries[:i], statusEntries[i+1:]...)
-        }
-    }
+	// Need to address the problem where a file was modified, staged, then modified again
+	// This will result in two distinct status entries without special handling given the
+	// current architecture
+	seen := make(map[string]*StatusEntry)
+	for i := len(statusEntries) - 1; i >= 0; i-- {
+		entry := statusEntries[i]
+		if _, ok := seen[entry.Path]; !ok {
+			seen[entry.Path] = &statusEntries[i]
+		} else {
+			if seen[entry.Path].IndexStatus == "" {
+				seen[entry.Path].IndexStatus = entry.IndexStatus
+			}
+			if seen[entry.Path].WorktreeStatus == "" {
+				seen[entry.Path].WorktreeStatus = entry.WorktreeStatus
+			}
+			statusEntries = append(statusEntries[:i], statusEntries[i+1:]...)
+		}
+	}
 
 	return &Status{
 		Entries: statusEntries,
 	}, nil
+}
+
+func (r *Repository) PrintIndex() {
+	index, err := r.GetIndex()
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, entry := range index.Entries {
+		fmt.Println(entry.String())
+	}
 }
 
 func (r *Repository) PrintStatus() {
@@ -125,9 +141,9 @@ func (r *Repository) PrintStatus() {
 	if err != nil {
 		log.Fatal(err)
 	}
-    for _, entry := range status.Entries {
-        fmt.Println(entry.String())
-    }
+	for _, entry := range status.Entries {
+		fmt.Println(entry.String())
+	}
 }
 
 // See: https://git-scm.com/docs/index-format#_the_git_index_file_has_the_following_format
