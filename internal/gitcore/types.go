@@ -3,57 +3,71 @@ package gitcore
 import (
 	"encoding/hex"
 	"fmt"
-	"path/filepath"
+	"regexp"
+	"strings"
+	"time"
 )
 
-type Repository struct {
-	Path string
-}
+type Hash string
 
-func NewRepository(path string) (*Repository, error) {
-	return &Repository{
-		Path: path,
-	}, nil
-}
-
-func (r *Repository) Name() string {
-	return filepath.Base(r.AbsPath())
-}
-
-func (r *Repository) AbsPath() string {
-	absPath, err := filepath.Abs(r.Path)
-	if err != nil {
-		return r.Path
+func NewHash(s string) (Hash, error) {
+	if len(s) != 40 {
+		return "", fmt.Errorf("invalid hash length: %d", len(s))
 	}
-	return absPath
-}
-
-type RepositoryInfo struct {
-	Name    string `json:"name"`
-	AbsPath string `json:"absPath"`
-}
-
-func (r *Repository) Info() *RepositoryInfo {
-	return &RepositoryInfo{
-		Name:    r.Name(),
-		AbsPath: r.AbsPath(),
+	if _, err := hex.DecodeString(s); err != nil {
+		return "", fmt.Errorf("invalid hash: %w", err)
 	}
+	return Hash(s), nil
 }
 
-type GitHash string
+func NewHashFromBytes(b [20]byte) (Hash, error) {
+    return NewHash(hex.EncodeToString(b[:]))
+}
 
-func NewGitHash(bytes []byte) (GitHash, error) {
-	if len(bytes) != 20 {
-		return "", fmt.Errorf("invalid hash length: %d bytes", len(bytes))
+func (h Hash) IsValid() bool {
+	if len(string(h)) != 40 {
+		return false
 	}
-	return GitHash(hex.EncodeToString(bytes)), nil
+	_, err := hex.DecodeString(string(h))
+	return err == nil
 }
 
 type Commit struct {
-	Hash     GitHash   `json:"hash"`
-	Message  string    `json:"message"`
-	Author   string    `json:"author"`
-	Date     string    `json:"date"`
-	Parents  []GitHash `json:"parents"`
-	Branches []string  `json:"branches,omitempty"`
+	ID        Hash
+	Tree      Hash
+	Parents   []Hash
+	Author    Signature
+	Committer Signature
+	Message   string
+}
+
+type Signature struct {
+	Name  string
+	Email string
+	When  time.Time
+}
+
+func NewSignature(signLine string) (Signature, error) {
+	re := regexp.MustCompile("[<>]")
+	parts := re.Split(signLine, -1)
+	if len(parts) != 3 {
+		return Signature{}, fmt.Errorf("invalid signature line: %q", signLine)
+	}
+
+	name := strings.TrimSpace(parts[0])
+	email := strings.TrimSpace(parts[1])
+
+	timeParts := strings.TrimSpace(parts[2])
+	if len(timeParts) < 1 {
+		return Signature{}, fmt.Errorf("invalid signature line: %q", signLine)
+	}
+	timestamp := timeParts[0]
+	var unixTime int64
+	fmt.Sscanf(string(timestamp), "%d", &unixTime)
+
+	return Signature{
+		Name:  name,
+		Email: email,
+		When:  time.Unix(unixTime, 0),
+	}, nil
 }

@@ -1,7 +1,6 @@
 package gitcore
 
 import (
-	"bytes"
 	"fmt"
 	"log"
 	"os"
@@ -9,205 +8,78 @@ import (
 	"strings"
 )
 
-func (r *Repository) GetBranches() (map[GitHash][]string, error) {
-	branches := make(map[GitHash][]string)
+// loadRefs loads all Git references (branches, tags) into the refs map.
+func (r *Repository) loadRefs() error {
+    r.mu.Lock()
+    defer r.mu.Unlock()
 
-	refsPath := filepath.Join(r.Path, ".git", "refs", "heads")
-	err := filepath.Walk(refsPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
-		}
-		if !info.IsDir() {
-			branchName := strings.TrimPrefix(path, refsPath+string(filepath.Separator))
-			hash, err := r.resolveRef(path)
-			if err == nil && hash != "" {
-				branches[hash] = append(branches[hash], branchName)
-			}
-		}
-		return nil
-	})
-
-	headPath := filepath.Join(r.Path, ".git", "HEAD")
-	data, err := os.ReadFile(headPath)
-	if err == nil {
-		content := strings.TrimSpace(string(data))
-		if strings.HasPrefix(content, "ref: refs/heads/") {
-			branchName := strings.TrimPrefix(content, "ref: refs/heads/")
-			hash, err := r.resolveRef(headPath)
-
-			if err == nil && hash != "" {
-				found := false
-				for i, b := range branches[hash] {
-					if b == branchName {
-						branches[hash][i] = "*" + branchName
-						found = true
-						break
-					}
-				}
-				if !found {
-					branches[hash] = append(branches[hash], "*"+branchName)
-				}
-			}
-		}
-	}
-
-	return branches, err
-}
-
-func (r *Repository) PrintBranches() {
-	branches, err := r.GetBranches()
-	if err != nil {
-		log.Fatal(err)
-	}
-    for k, v := range branches {
-        fmt.Println(k, v)
+    if err := r.loadLooseRefs("heads"); err != nil {
+        return fmt.Errorf("failed to load branches: %w", err)
     }
+    if err := r.loadLooseRefs("tags"); err != nil {
+        return fmt.Errorf("failed to load tags: %w", err)
+    }
+
+    return nil
 }
 
-func (r *Repository) getAllRefs() ([]GitHash, error) {
-	var refs []GitHash
+// loadLooseRefs recursively loads all refs in a directory.
+// prefix is like "heads" for branches, or "tags" for tags.
+func (r *Repository) loadLooseRefs(prefix string) error {
+    refsDir := filepath.Join(r.gitDir, "refs", prefix)
 
-	headPath := filepath.Join(r.Path, ".git", "HEAD")
-	headRef, err := r.resolveRef(headPath)
-	if err == nil && headRef != "" {
-		refs = append(refs, headRef)
-	}
+    if _, err := os.Stat(refsDir); os.IsNotExist(err) {
+        // No refs of this type yet (e.g., new repo with no tags), this is ok.
+        return nil
+    } else if err != nil {
+        return err
+    }
 
-	refsPath := filepath.Join(r.Path, ".git", "refs", "heads")
-	err = filepath.Walk(refsPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
-		}
-		if !info.IsDir() {
-			ref, err := r.resolveRef(path)
-			if err == nil && ref != "" {
-				refs = append(refs, ref)
-			}
-		}
-		return nil
-	})
+    return filepath.Walk(refsDir, func(path string, info os.FileInfo, err error) error {
+        if err != nil {
+            return err
+        }
+        if info.IsDir() {
+            return nil
+        }
 
-	tagsPath := filepath.Join(r.Path, ".git", "tags")
-	filepath.Walk(tagsPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
-		}
-		if !info.IsDir() {
-			ref, err := r.resolveRef(path)
-			if err == nil && ref != "" {
-				refs = append(refs, ref)
-			}
-		}
-		return nil
-	})
+        relPath, err := filepath.Rel(r.gitDir, path)
+        if err != nil {
+            return err
+        }
 
-	return refs, nil
+        refName := filepath.ToSlash(relPath)
+        hash, err := r.resolveRef(path)
+        if err != nil {
+            // Log the error but continue with other potentially valid refs.
+            log.Printf("error resolving ref: %w", err)
+            return nil
+        }
+
+        r.refs[refName] = hash
+        return nil
+    })
 }
 
-func (r *Repository) resolveRef(path string) (GitHash, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
+// resolveRef reads a single ref file and returns its hash.
+// Handles both direct hashes and symbolic refs.
+func (r *Repository) resolveRef(path string) (Hash, error) {
+    content, err := os.ReadFile(path)
+    if err != nil {
+        return "", err
+    }
 
-	content := strings.TrimSpace(string(data))
+    line := strings.TrimSpace(string(content))
 
-	if strings.HasPrefix(content, "ref: ") {
-		refName := strings.TrimPrefix(content, "ref: ")
-		newPath := filepath.Join(r.Path, ".git", refName)
-		return r.resolveRef(newPath)
-	}
-
-	if len(content) == 40 {
-		return GitHash(content), nil
-	}
-	return "", fmt.Errorf("invalid ref: %q", content)
-}
-
-func (r *Repository) getHeadTree() (map[string]GitHash, error) {
-	headPath := filepath.Join(r.Path, ".git", "HEAD")
-	commitHash, err := r.resolveRef(headPath)
-	if err != nil {
-		return nil, err
-	}
-
-	objectPath := filepath.Join(r.Path, ".git", "objects", string(commitHash)[:2], string(commitHash)[2:])
-	content, err := r.readObject(objectPath)
-	if err != nil {
-		return nil, err
-	}
-
-	nullIdx := bytes.IndexByte(content, 0)
-	if nullIdx == -1 {
-		return nil, fmt.Errorf("invalid commit object format")
-	}
-	content = content[nullIdx+1:]
-
-	lines := strings.Split(string(content), "\n")
-	var treeHash GitHash
-	for _, line := range lines {
-		if strings.HasPrefix(line, "tree ") {
-			treeHash = GitHash(strings.TrimPrefix(line, "tree "))
-			break
-		}
-	}
-	if treeHash == "" {
-		return nil, fmt.Errorf("no tree found in commit")
-	}
-
-	return r.readTreeRecursive(treeHash, "")
-}
-
-func (r *Repository) readTreeRecursive(treeHash GitHash, prefix string) (map[string]GitHash, error) {
-	result := make(map[string]GitHash)
-
-	objectPath := filepath.Join(r.Path, ".git", "objects", string(treeHash[:2]), string(treeHash[2:]))
-	content, err := r.readObject(objectPath)
-	if err != nil {
-		return nil, err
-	}
-
-	nullIdx := bytes.IndexByte(content, 0)
-	if nullIdx == -1 {
-		return nil, fmt.Errorf("invalid tree object")
-	}
-	content = content[nullIdx+1:]
-
-	for len(content) > 0 {
-		spaceIdx := bytes.IndexByte(content, ' ')
-		if spaceIdx == -1 {
-			break
-		}
-		mode := string(content[:spaceIdx])
-		content = content[spaceIdx+1:]
-
-		nullIdx := bytes.IndexByte(content, 0)
-		if nullIdx == -1 {
-			break
-		}
-		name := string(content[:nullIdx])
-		content = content[nullIdx+1:]
-
-		hash, err := NewGitHash(content[:20])
-		if err != nil {
-			return nil, fmt.Errorf("parsing hash: %w", err)
-		}
-		content = content[20:]
-
-		fullPath := filepath.ToSlash(filepath.Join(prefix, name))
-
-		if mode == "40000" {
-			subTree, err := r.readTreeRecursive(hash, fullPath)
-			if err != nil {
-				return nil, err
-			}
-			for subPath, subHash := range subTree {
-				result[subPath] = subHash
-			}
-		} else {
-			result[fullPath] = hash
-		}
-	}
-
-	return result, nil
+    if strings.HasPrefix(line, "ref: ") {
+        targetRef := strings.TrimPrefix(line, "ref: ")
+        targetPath := filepath.Join(r.gitDir, targetRef)
+        return r.resolveRef(targetPath)
+    } else {
+        hash, err := NewHash(line)
+        if err != nil {
+            return "", fmt.Errorf("invalid hash in ref file %s: %w", path, err)
+        }
+        return hash, nil
+    }
 }

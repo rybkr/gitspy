@@ -4,129 +4,83 @@ import (
 	"bufio"
 	"bytes"
 	"compress/zlib"
-	"crypto/sha1"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
-func (r *Repository) GetCommits() ([]Commit, error) {
-	refs, err := r.getAllRefs()
-	if err != nil {
-		return nil, err
+// loadCommits loads all Git commits into the commit store.
+// This function assumes that all references have already been loaded.
+func (r *Repository) loadCommits() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	visited := make(map[Hash]bool)
+	for _, ref := range r.refs {
+		r.traverseCommits(ref, visited)
 	}
 
-	visited := make(map[GitHash]bool)
-	var commits []Commit
-
-	for _, ref := range refs {
-		r.traverseCommits(ref, visited, &commits)
-	}
-
-    branches, err := r.GetBranches()
-    if err != nil {
-        return nil, err
-    }
-
-    // TODO(rybkr): Eliminate wasteful iterations
-    for hash, branchList := range branches {
-        for i := range commits {
-            if commits[i].Hash == hash {
-                commits[i].Branches = branchList 
-                break
-            }
-        }
-    }
-
-	return commits, nil
+	return nil
 }
 
-func (r *Repository) readObject(path string) ([]byte, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	zr, err := zlib.NewReader(file)
-	if err != nil {
-		return nil, err
-	}
-	defer zr.Close()
-
-	return io.ReadAll(zr)
-}
-
-func hashFile(path string) (GitHash, error) {
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-
-	header := fmt.Sprintf("blob %d\x00", len(content))
-	data := append([]byte(header), content...)
-	sum := sha1.Sum(data)
-	return NewGitHash(sum[:])
-}
-
-func (r *Repository) traverseCommits(hash GitHash, visited map[GitHash]bool, commits *[]Commit) {
-	if visited[hash] {
+// traverseCommits recursively loads all commits beginning from the provided reference.
+func (r *Repository) traverseCommits(ref Hash, visited map[Hash]bool) {
+	if visited[ref] {
 		return
 	}
-	visited[hash] = true
+	visited[ref] = true
 
-	commit, err := r.readCommit(hash)
+	commit, err := r.readCommit(ref)
 	if err != nil {
+		// Log the error but continue with other potentially valid commits.
+		log.Printf("error traversing commit: %w", err)
 		return
 	}
 
-	*commits = append(*commits, commit)
+	r.commits = append(r.commits, commit)
 	for _, parent := range commit.Parents {
-		r.traverseCommits(parent, visited, commits)
+		r.traverseCommits(parent, visited)
 	}
 }
 
-func (r *Repository) readCommit(hash GitHash) (Commit, error) {
-	objectPath := filepath.Join(r.Path, ".git", "objects", string(hash)[:2], string(hash)[2:])
+// readCommit parses a Commit object given its hash.
+func (r *Repository) readCommit(id Hash) (*Commit, error) {
+	objectPath := filepath.Join(r.gitDir, "objects", string(id)[:2], string(id)[2:])
 
 	file, err := os.Open(objectPath)
 	if err != nil {
-		return Commit{}, err
+		return nil, err
 	}
 	defer file.Close()
 
 	zr, err := zlib.NewReader(file)
 	if err != nil {
-		return Commit{}, err
+		return nil, err
 	}
 	defer zr.Close()
 
 	var buf bytes.Buffer
 	_, err = io.Copy(&buf, zr)
 	if err != nil {
-		return Commit{}, err
+		return nil, err
 	}
 
 	content := buf.Bytes()
-
 	nullIdx := bytes.IndexByte(content, 0)
 	if nullIdx == -1 {
-		return Commit{}, fmt.Errorf("invalid object format")
+		return nil, fmt.Errorf("invalid commit format")
 	}
 
 	header := string(content[:nullIdx])
 	if !strings.HasPrefix(header, "commit ") {
-		return Commit{}, fmt.Errorf("not a commit object: %q", header)
+		return nil, fmt.Errorf("not a commit object: %q", header)
 	}
 
 	body := content[nullIdx+1:]
-	commit := Commit{
-		Hash: hash,
-	}
-
+	commit := &Commit{ID: id}
 	scanner := bufio.NewScanner(bytes.NewReader(body))
 	inMessage := false
 	var messageLines []string
@@ -144,12 +98,21 @@ func (r *Repository) readCommit(hash GitHash) (Commit, error) {
 		}
 
 		if strings.HasPrefix(line, "parent ") {
-			parent := GitHash(strings.TrimPrefix(line, "parent "))
+			parent := Hash(strings.TrimPrefix(line, "parent "))
 			commit.Parents = append(commit.Parents, parent)
+		} else if strings.HasPrefix(line, "tree ") {
+			tree := Hash(strings.TrimPrefix(line, "tree "))
+			commit.Tree = tree
 		} else if strings.HasPrefix(line, "author ") {
 			authorLine := strings.TrimPrefix(line, "author ")
-			commit.Author = parseAuthorName(authorLine)
-			commit.Date = parseAuthorDate(authorLine)
+			if author, err := NewSignature(authorLine); err == nil {
+				commit.Author = author
+			}
+		} else if strings.HasPrefix(line, "committer ") {
+			committerLine := strings.TrimPrefix(line, "committer ")
+			if committer, err := NewSignature(committerLine); err == nil {
+				commit.Committer = committer
+			}
 		}
 	}
 
@@ -159,30 +122,25 @@ func (r *Repository) readCommit(hash GitHash) (Commit, error) {
 	return commit, nil
 }
 
-func parseAuthorName(authorLine string) string {
-	parts := strings.Split(authorLine, " <")
-	if len(parts) > 0 {
-		return parts[0]
+func (r *Repository) readPackedCommit(packPath string, offset int64, id Hash) (*Commit, error) {
+	file, err := os.Open(packPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open pack file: %w", err)
 	}
-	return "Unknown"
-}
+	defer file.Close()
 
-func parseAuthorDate(authorLine string) string {
-	parts := strings.Split(authorLine, "> ")
-	if len(parts) < 2 {
-		return ""
+	if _, err := file.Seek(offset, 0); err != nil {
+		return nil, fmt.Errorf("failed to seek to offset %d: %w", offset, err)
 	}
 
-	timeParts := strings.Fields(parts[1])
-	if len(timeParts) < 1 {
-		return ""
+	objectData, objectType, err := r.readPackObject(file)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read pack object: %w", err)
 	}
 
-	timestamp := timeParts[0]
+	if objectType != 1 {
+		return nil, fmt.Errorf("expected commit object (type 1), got type %d", objectType)
+	}
 
-	var unixTime int64
-	fmt.Sscanf(timestamp, "%d", &unixTime)
-	t := time.Unix(unixTime, 0)
-
-	return t.Format("2006-01-02 15:04:05")
+	return r.parseCommitBody(objectData, id)
 }
