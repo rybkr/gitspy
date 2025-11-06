@@ -88,6 +88,80 @@ func (r *Repository) readObject(id Hash) (Object, error) {
 	return nil, err
 }
 
+// readObjectData reads any object, loose or packed, and returns raw data.
+func (r *Repository) readObjectData(id Hash) ([]byte, byte, error) {
+    objectPath := filepath.Join(r.gitDir, "objects", string(id)[:2], string(id)[2:])
+    if _, err := os.Stat(objectPath); err == nil {
+        return r.readLooseObjectData(objectPath)
+    }
+
+    for _, idx := range r.packIndices {
+        if offset, found := idx.FindObject(id); found {
+            file, err := os.Open(idx.PackFile())
+            if err != nil {
+                continue
+            }
+            defer file.Close()
+            
+            file.Seek(offset, 0)
+            return r.readPackObject(file)
+        }
+    }
+    
+    return nil, 0, fmt.Errorf("object not found: %s", id)
+}
+
+// readLooseObjectData reads a loose object and returns raw data
+func (r *Repository) readLooseObjectData(objectPath string) ([]byte, byte, error) {
+    file, err := os.Open(objectPath)
+    if err != nil {
+        return nil, 0, err
+    }
+    defer file.Close()
+    
+    zr, err := zlib.NewReader(file)
+    if err != nil {
+        return nil, 0, err
+    }
+    defer zr.Close()
+    
+    var buf bytes.Buffer
+    if _, err := io.Copy(&buf, zr); err != nil {
+        return nil, 0, err
+    }
+    
+    content := buf.Bytes()
+    
+    nullIdx := bytes.IndexByte(content, 0)
+    if nullIdx == -1 {
+        return nil, 0, fmt.Errorf("invalid object format")
+    }
+    
+    header := string(content[:nullIdx])
+    parts := strings.SplitN(header, " ", 2)
+    if len(parts) != 2 {
+        return nil, 0, fmt.Errorf("invalid header: %s", header)
+    }
+    
+    objectType := parts[0]
+    
+    var typeNum byte
+    switch objectType {
+    case "commit":
+        typeNum = 1
+    case "tree":
+        typeNum = 2
+    case "blob":
+        typeNum = 3
+    case "tag":
+        typeNum = 4
+    default:
+        return nil, 0, fmt.Errorf("unknown object type: %s", objectType)
+    }
+    
+    return content[nullIdx+1:], typeNum, nil
+}
+
 // readLooseObjectHeader reads an object from loose object storage.
 func (r *Repository) readLooseObject(id Hash) (header string, content []byte, err error) {
 	objectPath := filepath.Join(r.gitDir, "objects", string(id)[:2], string(id)[2:])

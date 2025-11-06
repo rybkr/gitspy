@@ -18,5 +18,5 @@ func main() {
 
     fmt.Println(repo.Name())
     fmt.Println(repo.GetHEAD())
-    fmt.Println(*repo.Tags()[0])
+
 }

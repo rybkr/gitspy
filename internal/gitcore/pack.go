@@ -204,6 +204,10 @@ func (r *Repository) readPackObject(file *os.File) (data []byte, objectType byte
 	case 1, 2, 3, 4:
 		data, err := r.readCompressedObject(file, size)
 		return data, objType, err
+	case 6:
+		return r.readOfsDelta(file, size)
+    case 7:
+        return r.readRefDelta(file, size)
 	default:
 		return nil, 0, fmt.Errorf("unsupported object type: %d", objType)
 	}
@@ -250,4 +254,206 @@ func (r *Repository) readCompressedObject(file *os.File, expectedSize int64) ([]
 		return nil, fmt.Errorf("size mismatch: expected %d, got %d", expectedSize, len(data))
 	}
 	return data, nil
+}
+
+// readOfsDelta reads an offset delta object.
+func (r *Repository) readOfsDelta(file *os.File, size int64) ([]byte, byte, error) {
+	var b [1]byte
+	if _, err := file.Read(b[:]); err != nil {
+		return nil, 0, err
+	}
+
+	offset := int64(b[0] & 0x7F)
+
+	for b[0]&0x80 != 0 {
+		if _, err := file.Read(b[:]); err != nil {
+			return nil, 0, err
+		}
+		offset = ((offset + 1) << 7) | int64(b[0]&0x7F)
+	}
+
+	beforeDelta, err := file.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	basePos := beforeDelta - offset - 2
+
+	deltaData, err := r.readCompressedObject(file, size)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to read delta data: %w", err)
+	}
+
+	afterDelta, err := file.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	if _, err := file.Seek(basePos, 0); err != nil {
+		return nil, 0, fmt.Errorf("failed to seek to base object: %w", err)
+	}
+	baseData, baseType, err := r.readPackObject(file)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to read base object at %d (type %d): %w", basePos, baseType, err)
+	}
+
+	if _, err := file.Seek(afterDelta, 0); err != nil {
+		return nil, 0, err
+	}
+
+	result, err := r.applyDelta(baseData, deltaData)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to apply delta: %w", err)
+	}
+
+	return result, baseType, nil
+}
+
+// readRefDelta reads a reference delta object.
+func (r *Repository) readRefDelta(file *os.File, size int64) ([]byte, byte, error) {
+    var baseHash [20]byte
+    if _, err := io.ReadFull(file, baseHash[:]); err != nil {
+        return nil, 0, fmt.Errorf("failed to read base hash: %w", err)
+    }
+    baseHashStr, err := NewHashFromBytes(baseHash)
+    if err != nil {
+        return nil, 0, fmt.Errorf("invalid hash: %v", baseHash)
+    }
+
+    deltaData, err := r.readCompressedObject(file, size)
+    if err != nil {
+        return nil, 0, fmt.Errorf("failed to read delta data: %w", err)
+    }
+
+    baseData, baseType, err := r.readObjectData(baseHashStr)
+    if err != nil {
+        return nil, 0, fmt.Errorf("failed to read base object %s: %w", baseHashStr.Short(), err)
+    }
+
+    result, err := r.applyDelta(baseData, deltaData)
+    if err != nil {
+        return nil, 0, fmt.Errorf("failed to apply delta: %w", err)
+    }
+
+    return result, baseType, nil
+}
+
+// applyDelta applies a delta to a base object.
+func (r *Repository) applyDelta(base []byte, delta []byte) ([]byte, error) {
+	src := bytes.NewReader(delta)
+
+	srcSize, err := r.readVarInt(src)
+	if err != nil {
+		return nil, err
+	}
+	if srcSize != int64(len(base)) {
+		return nil, fmt.Errorf("base size mismatch: expected %d, got %d", srcSize, len(base))
+	}
+
+	targetSize, err := r.readVarInt(src)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]byte, 0, targetSize)
+
+	for {
+		var cmd [1]byte
+		_, err := src.Read(cmd[:])
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		if cmd[0]&0x80 != 0 {
+			var offset, size int64
+
+			if cmd[0]&0x01 != 0 {
+				var b [1]byte
+				src.Read(b[:])
+				offset = int64(b[0])
+			}
+			if cmd[0]&0x02 != 0 {
+				var b [1]byte
+				src.Read(b[:])
+				offset |= int64(b[0]) << 8
+			}
+			if cmd[0]&0x04 != 0 {
+				var b [1]byte
+				src.Read(b[:])
+				offset |= int64(b[0]) << 16
+			}
+			if cmd[0]&0x08 != 0 {
+				var b [1]byte
+				src.Read(b[:])
+				offset |= int64(b[0]) << 24
+			}
+
+			if cmd[0]&0x10 != 0 {
+				var b [1]byte
+				src.Read(b[:])
+				size = int64(b[0])
+			}
+			if cmd[0]&0x20 != 0 {
+				var b [1]byte
+				src.Read(b[:])
+				size |= int64(b[0]) << 8
+			}
+			if cmd[0]&0x40 != 0 {
+				var b [1]byte
+				src.Read(b[:])
+				size |= int64(b[0]) << 16
+			}
+
+			if size == 0 {
+				size = 0x10000
+			}
+
+			if offset+size > int64(len(base)) {
+				return nil, fmt.Errorf("copy exceeds base size")
+			}
+			result = append(result, base[offset:offset+size]...)
+
+		} else if cmd[0] != 0 {
+			size := int(cmd[0] & 0x7f)
+			data := make([]byte, size)
+			if _, err := io.ReadFull(src, data); err != nil {
+				return nil, err
+			}
+			result = append(result, data...)
+
+		} else {
+			return nil, fmt.Errorf("invalid delta command: 0")
+		}
+	}
+
+	if int64(len(result)) != targetSize {
+		return nil, fmt.Errorf("result size mismatch: expected %d, got %d", targetSize, len(result))
+	}
+
+	return result, nil
+}
+
+// readVarInt reads a variable-length integer
+func (r *Repository) readVarInt(src *bytes.Reader) (int64, error) {
+	var result int64
+	var shift uint
+
+	for {
+		var b [1]byte
+		if _, err := src.Read(b[:]); err != nil {
+			return 0, err
+		}
+
+		result |= int64(b[0]&0x7f) << shift
+		shift += 7
+
+		if b[0]&0x80 == 0 {
+			break
+		}
+	}
+
+	return result, nil
 }

@@ -27,6 +27,11 @@ func NewHashFromBytes(b [20]byte) (Hash, error) {
 	return NewHash(hex.EncodeToString(b[:]))
 }
 
+// Short returns the truncated representation of a Hash.
+func (h Hash) Short() string {
+    return string(h)[:7]
+}
+
 // IsValid checks if the hash has a valid format (40 hex characters for SHA-1).
 func (h Hash) IsValid() bool {
 	if len(string(h)) != 40 {
