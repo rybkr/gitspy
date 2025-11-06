@@ -17,4 +17,8 @@ func main() {
 	}
 
     fmt.Println(repo.Name())
+
+    for _, commit := range(repo.Commits()) {
+        fmt.Println(commit)
+    }
 }

@@ -74,6 +74,10 @@ func (r *Repository) Branches() map[string]Hash {
 	return branches
 }
 
+func (r *Repository) Commits() []*Commit {
+    return r.commits
+}
+
 // findGitDirectory locates the .git directory starting from the given path.
 // Returns both the .git directory and the working directory.
 func findGitDirectory(startPath string) (gitDir string, workDir string, err error) {
