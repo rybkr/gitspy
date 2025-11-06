@@ -48,6 +48,20 @@ func (r *Repository) traverseCommits(ref Hash, visited map[Hash]bool) {
 
 // readCommit parses a Commit object given its hash.
 func (r *Repository) readCommit(id Hash) (*Commit, error) {
+	if commit, err := r.readLooseCommit(id); err == nil {
+		return commit, nil
+	}
+
+	for _, packIndex := range r.packIndices {
+		if offset, found := packIndex.FindObject(id); found {
+			return r.readPackedCommit(packIndex.PackFile(), offset, id)
+		}
+	}
+
+	return nil, fmt.Errorf("cow")
+}
+
+func (r *Repository) readLooseCommit(id Hash) (*Commit, error) {
 	objectPath := filepath.Join(r.gitDir, "objects", string(id)[:2], string(id)[2:])
 
 	file, err := os.Open(objectPath)
@@ -79,7 +93,33 @@ func (r *Repository) readCommit(id Hash) (*Commit, error) {
 		return nil, fmt.Errorf("not a commit object: %q", header)
 	}
 
-	body := content[nullIdx+1:]
+	return r.parseCommitBody(content[nullIdx+1:], id)
+}
+
+func (r *Repository) readPackedCommit(packPath string, offset int64, id Hash) (*Commit, error) {
+	file, err := os.Open(packPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open pack file: %w", err)
+	}
+	defer file.Close()
+
+	if _, err := file.Seek(offset, 0); err != nil {
+		return nil, fmt.Errorf("failed to seek to offset %d: %w", offset, err)
+	}
+
+	objectData, objectType, err := r.readPackObject(file)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read pack object: %w", err)
+	}
+
+	if objectType != 1 {
+		return nil, fmt.Errorf("expected commit object (type 1), got type %d", objectType)
+	}
+
+	return r.parseCommitBody(objectData, id)
+}
+
+func (r *Repository) parseCommitBody(body []byte, id Hash) (*Commit, error) {
 	commit := &Commit{ID: id}
 	scanner := bufio.NewScanner(bytes.NewReader(body))
 	inMessage := false
@@ -120,27 +160,4 @@ func (r *Repository) readCommit(id Hash) (*Commit, error) {
 	commit.Message = strings.TrimSpace(commit.Message)
 
 	return commit, nil
-}
-
-func (r *Repository) readPackedCommit(packPath string, offset int64, id Hash) (*Commit, error) {
-	file, err := os.Open(packPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open pack file: %w", err)
-	}
-	defer file.Close()
-
-	if _, err := file.Seek(offset, 0); err != nil {
-		return nil, fmt.Errorf("failed to seek to offset %d: %w", offset, err)
-	}
-
-	objectData, objectType, err := r.readPackObject(file)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read pack object: %w", err)
-	}
-
-	if objectType != 1 {
-		return nil, fmt.Errorf("expected commit object (type 1), got type %d", objectType)
-	}
-
-	return r.parseCommitBody(objectData, id)
 }

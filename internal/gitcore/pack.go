@@ -1,7 +1,9 @@
 package gitcore
 
 import (
-    "encoding/binary"
+	"bytes"
+	"compress/zlib"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"log"
@@ -17,6 +19,15 @@ type PackIndex struct {
 	numObjects uint32
 	fanout     [256]uint32
 	offsets    map[Hash]int64
+}
+
+func (p *PackIndex) FindObject(id Hash) (int64, bool) {
+	offset, found := p.offsets[id]
+	return offset, found
+}
+
+func (p *PackIndex) PackFile() string {
+	return p.packPath
 }
 
 func (r *Repository) loadPackIndices() error {
@@ -55,7 +66,7 @@ func (r *Repository) loadPackIndices() error {
 		r.packIndices = append(r.packIndices, idx)
 	}
 
-    return nil
+	return nil
 }
 
 func (r *Repository) loadPackIndex(idxPath string) (*PackIndex, error) {
@@ -140,9 +151,9 @@ func (r *Repository) loadPackIndexV2(file *os.File, idxPath string) (*PackIndex,
 
 	for i := uint32(0); i < idx.numObjects; i++ {
 		hash, err := NewHashFromBytes(objectNames[i])
-        if err != nil {
-            return nil, err
-        }
+		if err != nil {
+			return nil, err
+		}
 
 		offset := offsets[i]
 		if offset&0x80000000 != 0 {
@@ -186,11 +197,71 @@ func (r *Repository) loadPackIndexV1(file *os.File, idxPath string) (*PackIndex,
 		}
 
 		hash, err := NewHashFromBytes(nameBytes)
-        if err != nil {
-            return nil, err
-        }
+		if err != nil {
+			return nil, err
+		}
 		idx.offsets[hash] = int64(offset)
 	}
 
 	return idx, nil
+}
+
+// readPackObject reads an object from a pack file at the current position.
+// Returns the decompressed object data and its type.
+func (r *Repository) readPackObject(file *os.File) (data []byte, objectType byte, err error) {
+	objType, size, err := r.readPackObjectHeader(file)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	switch objType {
+	case 1, 2, 3, 4:
+		data, err := r.readCompressedObject(file, size)
+		return data, objType, err
+	default:
+		return nil, 0, fmt.Errorf("unsupported object type: %d", objType)
+	}
+}
+
+// readPackObjectHeader reads the variable-length header from a pack object.
+// Returns object type and uncompressed size.
+func (r *Repository) readPackObjectHeader(file *os.File) (objectType byte, size int64, err error) {
+	var b [1]byte
+	if _, err := file.Read(b[:]); err != nil {
+		return 0, 0, err
+	}
+
+	objectType = (b[0] >> 4) & 0x07
+	size = int64(b[0] & 0x0F)
+	shift := 4
+
+	for b[0]&0x80 != 0 {
+		if _, err := file.Read(b[:]); err != nil {
+			return 0, 0, err
+		}
+		size |= int64(b[0]&0x7F) << shift
+		shift += 7
+	}
+
+	return objectType, size, nil
+}
+
+// readCompressedObject reads and decompresses zlib-compressed data at the current file position.
+func (r *Repository) readCompressedObject(file *os.File, expectedSize int64) ([]byte, error) {
+	zr, err := zlib.NewReader(file)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create zlib reader: %w", err)
+	}
+	defer zr.Close()
+
+	var buf bytes.Buffer
+	if _, err := io.Copy(&buf, zr); err != nil {
+		return nil, fmt.Errorf("failed to decompress data: %w", err)
+	}
+	data := buf.Bytes()
+
+	if int64(len(data)) != expectedSize {
+		return nil, fmt.Errorf("size mismatch: expected %d, got %d", expectedSize, len(data))
+	}
+	return data, nil
 }

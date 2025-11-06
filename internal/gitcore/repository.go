@@ -1,20 +1,21 @@
 package gitcore
 
 import (
-    "fmt"
-    "path/filepath"
-    "os"
-    "strings"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 )
 
+// Repository represents a Git repository with its metadata and object storage.
 type Repository struct {
 	gitDir  string
 	workDir string
 
-    packIndices []*PackIndex
-	refs map[string]Hash
-    commits []*Commit
+	packIndices []*PackIndex
+	refs        map[string]Hash
+	commits     []*Commit
 
 	mu sync.RWMutex
 }
@@ -38,40 +39,43 @@ func NewRepository(path string) (*Repository, error) {
 		gitDir:  gitDir,
 		workDir: workDir,
 		refs:    make(map[string]Hash),
-        commits: make([]*Commit, 0),
+		commits: make([]*Commit, 0),
 	}
 
-    if err := repo.loadPackIndices(); err != nil {
-        return nil, fmt.Errorf("failed to load pack indices: %w", err)
-    }
+	if err := repo.loadPackIndices(); err != nil {
+		return nil, fmt.Errorf("failed to load pack indices: %w", err)
+	}
 	if err := repo.loadRefs(); err != nil {
 		return nil, fmt.Errorf("failed to load refs: %w", err)
 	}
-    if err := repo.loadCommits(); err != nil {
-        return nil, fmt.Errorf("failed to load commits: %w", err)
-    }
+	if err := repo.loadCommits(); err != nil {
+		return nil, fmt.Errorf("failed to load commits: %w", err)
+	}
 
 	return repo, nil
 }
 
 // Name returns the repository's directory name.
 func (r *Repository) Name() string {
-    return filepath.Base(r.workDir)
+	return filepath.Base(r.workDir)
 }
 
 // Branches returns a copy of all branch references.
 func (r *Repository) Branches() map[string]Hash {
-    branches := make(map[string]Hash)
-    for ref, hash := range r.refs {
-        if strings.HasPrefix(ref, "refs/heads/") {
-            branches[ref] = hash
-        }
-    }
-    return branches
+	r.mu.Lock()
+	r.mu.Unlock()
+
+	branches := make(map[string]Hash)
+	for ref, hash := range r.refs {
+		if strings.HasPrefix(ref, "refs/heads/") {
+			branches[ref] = hash
+		}
+	}
+	return branches
 }
 
-// findGitDirectory locates the .git directory starting from the given path
-// Returns both the .git directory and the working directory
+// findGitDirectory locates the .git directory starting from the given path.
+// Returns both the .git directory and the working directory.
 func findGitDirectory(startPath string) (gitDir string, workDir string, err error) {
 	absPath, err := filepath.Abs(startPath)
 	if err != nil {
@@ -106,7 +110,7 @@ func findGitDirectory(startPath string) (gitDir string, workDir string, err erro
 	}
 }
 
-// handleGitFile handles the case where .git is a file (worktrees, submodules)
+// handleGitFile handles the case where .git is a file (worktrees, submodules).
 // .git file format: "gitdir: /path/to/actual/.git"
 func handleGitFile(gitFilePath string, workDir string) (string, string, error) {
 	content, err := os.ReadFile(gitFilePath)
@@ -132,28 +136,23 @@ func handleGitFile(gitFilePath string, workDir string) (string, string, error) {
 	return gitDir, workDir, nil
 }
 
-// validateGitDirectory checks if the directory is a valid Git repository
+// validateGitDirectory checks if the directory is a valid Git repository.
 func validateGitDirectory(gitDir string) error {
-    info, err := os.Stat(gitDir)
-    if err != nil {
-        return fmt.Errorf("git directory does not exist: %w", err)
-    }
-    if !info.IsDir() {
-        return fmt.Errorf("git path is not a directory: %s", gitDir)
-    }
-    
-    requiredPaths := []string{
-        "objects",        // Object database
-        "refs",           // References (branches, tags)
-        "HEAD",           // Current HEAD
-    }
-    
-    for _, required := range requiredPaths {
-        path := filepath.Join(gitDir, required)
-        if _, err := os.Stat(path); err != nil {
-            return fmt.Errorf("invalid git repository, missing: %s", required)
-        }
-    }
-    
-    return nil
+	info, err := os.Stat(gitDir)
+	if err != nil {
+		return fmt.Errorf("git directory does not exist: %w", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("git path is not a directory: %s", gitDir)
+	}
+
+	requiredPaths := []string{"objects", "refs", "HEAD"}
+	for _, required := range requiredPaths {
+		path := filepath.Join(gitDir, required)
+		if _, err := os.Stat(path); err != nil {
+			return fmt.Errorf("invalid git repository, missing: %s", required)
+		}
+	}
+
+	return nil
 }
