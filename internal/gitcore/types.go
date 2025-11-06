@@ -36,6 +36,31 @@ func (h Hash) IsValid() bool {
 	return err == nil
 }
 
+// Object represents a generic Git object.
+type Object interface {
+	Type() ObjectType
+}
+
+// ObjectType denotes the type of a Git object (e.g., commit, tag).
+type ObjectType int
+
+const (
+	NoneObject   ObjectType = 0
+	CommitObject ObjectType = 1
+	TagObject    ObjectType = 4
+)
+
+func StrToObjectType(s string) ObjectType {
+	switch s {
+	case "commit":
+		return CommitObject
+	case "tag":
+		return TagObject
+	default:
+		return NoneObject
+	}
+}
+
 // Commit represents a Git commit object with its metadata and relationships.
 type Commit struct {
 	ID        Hash
@@ -44,6 +69,24 @@ type Commit struct {
 	Author    Signature
 	Committer Signature
 	Message   string
+}
+
+func (c *Commit) Type() ObjectType {
+	return CommitObject
+}
+
+// Tag represents an annotated Git tag with metadata and a message.
+type Tag struct {
+	ID      Hash
+	Object  Hash
+	ObjType ObjectType
+	Name    string
+	Tagger  Signature
+	Message string
+}
+
+func (t *Tag) Type() ObjectType {
+	return TagObject
 }
 
 // Signature represents a Git author or committer signature with name, email, and timestamp.

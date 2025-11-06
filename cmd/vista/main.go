@@ -17,8 +17,6 @@ func main() {
 	}
 
     fmt.Println(repo.Name())
-
-    for _, commit := range(repo.Commits()) {
-        fmt.Println(commit)
-    }
+    fmt.Println(repo.GetHEAD())
+    fmt.Println(*repo.Tags()[0])
 }

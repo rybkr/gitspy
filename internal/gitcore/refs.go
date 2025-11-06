@@ -19,6 +19,9 @@ func (r *Repository) loadRefs() error {
 	if err := r.loadLooseRefs("tags"); err != nil {
 		return fmt.Errorf("failed to load tags: %w", err)
 	}
+	if err := r.loadHEAD(); err != nil {
+		return fmt.Errorf("failed to load head: %w", err)
+	}
 
 	return nil
 }
@@ -59,6 +62,39 @@ func (r *Repository) loadLooseRefs(prefix string) error {
 		r.refs[refName] = hash
 		return nil
 	})
+}
+
+// loadHEAD reads and caches HEAD information
+func (r *Repository) loadHEAD() error {
+	headPath := filepath.Join(r.gitDir, "HEAD")
+	content, err := os.ReadFile(headPath)
+	if err != nil {
+		return fmt.Errorf("failed to read HEAD: %w", err)
+	}
+
+	line := strings.TrimSpace(string(content))
+
+	if strings.HasPrefix(line, "ref: ") {
+		r.headRef = strings.TrimPrefix(line, "ref: ")
+		r.headDetached = false
+
+		if hash, exists := r.refs[r.headRef]; exists {
+			r.head = hash
+		} else {
+			r.head = "" // New repository with no commits, this is ok.
+		}
+	} else {
+		r.headDetached = true
+		r.headRef = ""
+
+		hash, err := NewHash(line)
+		if err != nil {
+			return fmt.Errorf("invalid HEAD: %w", err)
+		}
+		r.head = hash
+	}
+
+	return nil
 }
 
 // resolveRef reads a single ref file and returns its hash.

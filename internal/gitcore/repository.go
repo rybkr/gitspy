@@ -16,6 +16,11 @@ type Repository struct {
 	packIndices []*PackIndex
 	refs        map[string]Hash
 	commits     []*Commit
+	tags        []*Tag
+
+	head         Hash
+	headRef      string
+	headDetached bool
 
 	mu sync.RWMutex
 }
@@ -48,7 +53,7 @@ func NewRepository(path string) (*Repository, error) {
 	if err := repo.loadRefs(); err != nil {
 		return nil, fmt.Errorf("failed to load refs: %w", err)
 	}
-	if err := repo.loadCommits(); err != nil {
+	if err := repo.loadObjects(); err != nil {
 		return nil, fmt.Errorf("failed to load commits: %w", err)
 	}
 
@@ -58,6 +63,21 @@ func NewRepository(path string) (*Repository, error) {
 // Name returns the repository's directory name.
 func (r *Repository) Name() string {
 	return filepath.Base(r.workDir)
+}
+
+// GetHEAD returns the current HEAD commit hash (from cache)
+func (r *Repository) GetHEAD() Hash {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.head
+}
+
+// GetHEADRef returns the symbolic ref HEAD points to (e.g., "refs/heads/main")
+// Returns empty string if HEAD is detached
+func (r *Repository) GetHEADRef() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.headRef
 }
 
 // Branches returns a copy of all branch references.
@@ -72,6 +92,10 @@ func (r *Repository) Branches() map[string]Hash {
 		}
 	}
 	return branches
+}
+
+func (r *Repository) Tags() []*Tag {
+	return r.tags
 }
 
 // findGitDirectory locates the .git directory starting from the given path.
