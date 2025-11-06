@@ -12,24 +12,7 @@ import (
 	"strings"
 )
 
-type PackIndex struct {
-	path       string
-	packPath   string
-	version    uint32
-	numObjects uint32
-	fanout     [256]uint32
-	offsets    map[Hash]int64
-}
-
-func (p *PackIndex) FindObject(id Hash) (int64, bool) {
-	offset, found := p.offsets[id]
-	return offset, found
-}
-
-func (p *PackIndex) PackFile() string {
-	return p.packPath
-}
-
+// loadPackIndices scans the objects/pack directory and loads all pack index files.
 func (r *Repository) loadPackIndices() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -69,6 +52,7 @@ func (r *Repository) loadPackIndices() error {
 	return nil
 }
 
+// loadPackIndex loads a single pack index file, detecting its version automatically.
 func (r *Repository) loadPackIndex(idxPath string) (*PackIndex, error) {
 	file, err := os.Open(idxPath)
 	if err != nil {
@@ -89,6 +73,7 @@ func (r *Repository) loadPackIndex(idxPath string) (*PackIndex, error) {
 	}
 }
 
+// loadPackIndexV2 loads a version 2 pack index file.
 func (r *Repository) loadPackIndexV2(file *os.File, idxPath string) (*PackIndex, error) {
 	idx := &PackIndex{
 		path:     idxPath,
@@ -170,6 +155,7 @@ func (r *Repository) loadPackIndexV2(file *os.File, idxPath string) (*PackIndex,
 	return idx, nil
 }
 
+// loadPackIndexV1 loads a version 1 pack index file.
 func (r *Repository) loadPackIndexV1(file *os.File, idxPath string) (*PackIndex, error) {
 	idx := &PackIndex{
 		path:     idxPath,

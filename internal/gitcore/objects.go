@@ -13,7 +13,8 @@ import (
 )
 
 // loadCommits loads all Git commits into the commit store.
-// This function assumes that all references have already been loaded.
+// It traverses all references and their commit histories.
+// It assumes that all references have already been loaded.
 func (r *Repository) loadCommits() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -26,7 +27,8 @@ func (r *Repository) loadCommits() error {
 	return nil
 }
 
-// traverseCommits recursively loads all commits beginning from the provided reference.
+// traverseCommits recursively loads all commits beginning from the provided reference,
+// using the visited map to avoid processing the same commit multiple times.
 func (r *Repository) traverseCommits(ref Hash, visited map[Hash]bool) {
 	if visited[ref] {
 		return
@@ -47,6 +49,7 @@ func (r *Repository) traverseCommits(ref Hash, visited map[Hash]bool) {
 }
 
 // readCommit parses a Commit object given its hash.
+// It first attempts to read from loose objects, then falls back to pack files.
 func (r *Repository) readCommit(id Hash) (*Commit, error) {
 	if commit, err := r.readLooseCommit(id); err == nil {
 		return commit, nil
@@ -61,6 +64,7 @@ func (r *Repository) readCommit(id Hash) (*Commit, error) {
 	return nil, fmt.Errorf("cow")
 }
 
+// readLooseCommit reads a commit object from the loose object storage.
 func (r *Repository) readLooseCommit(id Hash) (*Commit, error) {
 	objectPath := filepath.Join(r.gitDir, "objects", string(id)[:2], string(id)[2:])
 
@@ -96,6 +100,7 @@ func (r *Repository) readLooseCommit(id Hash) (*Commit, error) {
 	return r.parseCommitBody(content[nullIdx+1:], id)
 }
 
+// readPackedCommit reads a commit object from a pack file at the given offset.
 func (r *Repository) readPackedCommit(packPath string, offset int64, id Hash) (*Commit, error) {
 	file, err := os.Open(packPath)
 	if err != nil {
@@ -119,6 +124,7 @@ func (r *Repository) readPackedCommit(packPath string, offset int64, id Hash) (*
 	return r.parseCommitBody(objectData, id)
 }
 
+// parseCommitBody parses the body of a commit object into a Commit struct.
 func (r *Repository) parseCommitBody(body []byte, id Hash) (*Commit, error) {
 	commit := &Commit{ID: id}
 	scanner := bufio.NewScanner(bytes.NewReader(body))
