@@ -54,7 +54,7 @@ func NewRepository(path string) (*Repository, error) {
 		return nil, fmt.Errorf("failed to load refs: %w", err)
 	}
 	if err := repo.loadObjects(); err != nil {
-		return nil, fmt.Errorf("failed to load commits: %w", err)
+		return nil, fmt.Errorf("failed to load objects: %w", err)
 	}
 
 	return repo, nil
@@ -82,9 +82,6 @@ func (r *Repository) GetHEADRef() string {
 
 // Branches returns a copy of all branch references.
 func (r *Repository) Branches() map[string]Hash {
-	r.mu.Lock()
-	r.mu.Unlock()
-
 	branches := make(map[string]Hash)
 	for ref, hash := range r.refs {
 		if strings.HasPrefix(ref, "refs/heads/") {
@@ -94,7 +91,10 @@ func (r *Repository) Branches() map[string]Hash {
 	return branches
 }
 
+// Tags returns all tag objects in the repository.
 func (r *Repository) Tags() []*Tag {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	return r.tags
 }
 

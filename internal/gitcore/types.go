@@ -29,7 +29,7 @@ func NewHashFromBytes(b [20]byte) (Hash, error) {
 
 // Short returns the truncated representation of a Hash.
 func (h Hash) Short() string {
-    return string(h)[:7]
+	return string(h)[:7]
 }
 
 // IsValid checks if the hash has a valid format (40 hex characters for SHA-1).
@@ -55,6 +55,7 @@ const (
 	TagObject    ObjectType = 4
 )
 
+// StrToObjectType converts a string representation of an object type to an ObjectType.
 func StrToObjectType(s string) ObjectType {
 	switch s {
 	case "commit":
@@ -76,6 +77,7 @@ type Commit struct {
 	Message   string
 }
 
+// Type returns the object type for a Commit.
 func (c *Commit) Type() ObjectType {
 	return CommitObject
 }
@@ -90,6 +92,7 @@ type Tag struct {
 	Message string
 }
 
+// Type returns the object type for a Tag.
 func (t *Tag) Type() ObjectType {
 	return TagObject
 }
@@ -112,13 +115,21 @@ func NewSignature(signLine string) (Signature, error) {
 	name := strings.TrimSpace(parts[0])
 	email := strings.TrimSpace(parts[1])
 
-	timeParts := strings.TrimSpace(parts[2])
-	if len(timeParts) < 1 {
-		return Signature{}, fmt.Errorf("invalid signature line: %q", signLine)
+	timePart := strings.TrimSpace(parts[2])
+	if timePart == "" {
+		return Signature{}, fmt.Errorf("invalid signature line: missing timestamp: %q", signLine)
 	}
-	timestamp := timeParts[0]
+
+	// Parse timestamp (format: "timestamp timezone" or just "timestamp")
+	timeFields := strings.Fields(timePart)
+	if len(timeFields) == 0 {
+		return Signature{}, fmt.Errorf("invalid signature line: missing timestamp: %q", signLine)
+	}
+
 	var unixTime int64
-	fmt.Sscanf(string(timestamp), "%d", &unixTime)
+	if _, err := fmt.Sscanf(timeFields[0], "%d", &unixTime); err != nil {
+		return Signature{}, fmt.Errorf("invalid signature line: invalid timestamp: %q", signLine)
+	}
 
 	return Signature{
 		Name:  name,

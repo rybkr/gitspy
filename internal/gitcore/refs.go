@@ -55,7 +55,7 @@ func (r *Repository) loadLooseRefs(prefix string) error {
 		hash, err := r.resolveRef(path)
 		if err != nil {
 			// Log the error but continue with other potentially valid refs.
-			log.Printf("error resolving ref: %w", err)
+			log.Printf("error resolving ref: %v", err)
 			return nil
 		}
 
@@ -111,11 +111,11 @@ func (r *Repository) resolveRef(path string) (Hash, error) {
 		targetRef := strings.TrimPrefix(line, "ref: ")
 		targetPath := filepath.Join(r.gitDir, targetRef)
 		return r.resolveRef(targetPath)
-	} else {
-		hash, err := NewHash(line)
-		if err != nil {
-			return "", fmt.Errorf("invalid hash in ref file %s: %w", path, err)
-		}
-		return hash, nil
 	}
+
+	hash, err := NewHash(line)
+	if err != nil {
+		return "", fmt.Errorf("invalid hash in ref file %s: %w", path, err)
+	}
+	return hash, nil
 }

@@ -16,9 +16,6 @@ import (
 // It traverses all references and their histories.
 // It assumes that all references have already been loaded.
 func (r *Repository) loadObjects() error {
-	r.mu.Lock()
-	r.mu.Unlock()
-
 	visited := make(map[Hash]bool)
 	for _, ref := range r.refs {
 		r.traverseObjects(ref, visited)
@@ -38,7 +35,7 @@ func (r *Repository) traverseObjects(ref Hash, visited map[Hash]bool) {
 	object, err := r.readObject(ref)
 	if err != nil {
 		// Log the error but continue with other potentially valid objects.
-		log.Printf("error traversing object: %w", err)
+		log.Printf("error traversing object: %v", err)
 		return
 	}
 
@@ -55,7 +52,7 @@ func (r *Repository) traverseObjects(ref Hash, visited map[Hash]bool) {
 		r.traverseObjects(tag.Object, visited)
 	default:
 		// Unrecognized type, log the error but continue on.
-		log.Printf("unknown object type: %d", object.Type())
+		log.Printf("unsupported object type: %d", object.Type())
 	}
 }
 
@@ -90,79 +87,73 @@ func (r *Repository) readObject(id Hash) (Object, error) {
 
 // readObjectData reads any object, loose or packed, and returns raw data.
 func (r *Repository) readObjectData(id Hash) ([]byte, byte, error) {
-    objectPath := filepath.Join(r.gitDir, "objects", string(id)[:2], string(id)[2:])
-    if _, err := os.Stat(objectPath); err == nil {
-        return r.readLooseObjectData(objectPath)
-    }
+	objectPath := filepath.Join(r.gitDir, "objects", string(id)[:2], string(id)[2:])
+	if _, err := os.Stat(objectPath); err == nil {
+		return r.readLooseObjectData(objectPath)
+	}
 
-    for _, idx := range r.packIndices {
-        if offset, found := idx.FindObject(id); found {
-            file, err := os.Open(idx.PackFile())
-            if err != nil {
-                continue
-            }
-            defer file.Close()
-            
-            file.Seek(offset, 0)
-            return r.readPackObject(file)
-        }
-    }
-    
-    return nil, 0, fmt.Errorf("object not found: %s", id)
+	for _, idx := range r.packIndices {
+		if offset, found := idx.FindObject(id); found {
+			file, err := os.Open(idx.PackFile())
+			if err != nil {
+				continue
+			}
+			defer file.Close()
+
+			if _, err := file.Seek(offset, 0); err != nil {
+				continue
+			}
+			return r.readPackObject(file)
+		}
+	}
+
+	return nil, 0, fmt.Errorf("object not found: %s", id)
 }
 
 // readLooseObjectData reads a loose object and returns raw data
 func (r *Repository) readLooseObjectData(objectPath string) ([]byte, byte, error) {
-    file, err := os.Open(objectPath)
-    if err != nil {
-        return nil, 0, err
-    }
-    defer file.Close()
-    
-    zr, err := zlib.NewReader(file)
-    if err != nil {
-        return nil, 0, err
-    }
-    defer zr.Close()
-    
-    var buf bytes.Buffer
-    if _, err := io.Copy(&buf, zr); err != nil {
-        return nil, 0, err
-    }
-    
-    content := buf.Bytes()
-    
-    nullIdx := bytes.IndexByte(content, 0)
-    if nullIdx == -1 {
-        return nil, 0, fmt.Errorf("invalid object format")
-    }
-    
-    header := string(content[:nullIdx])
-    parts := strings.SplitN(header, " ", 2)
-    if len(parts) != 2 {
-        return nil, 0, fmt.Errorf("invalid header: %s", header)
-    }
-    
-    objectType := parts[0]
-    
-    var typeNum byte
-    switch objectType {
-    case "commit":
-        typeNum = 1
-    case "tree":
-        typeNum = 2
-    case "blob":
-        typeNum = 3
-    case "tag":
-        typeNum = 4
-    default:
-        return nil, 0, fmt.Errorf("unknown object type: %s", objectType)
-    }
-    
-    return content[nullIdx+1:], typeNum, nil
+	file, err := os.Open(objectPath)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer file.Close()
+
+	content, err := r.readCompressedData(file)
+	if err != nil {
+		return nil, 0, fmt.Errorf("invalid compressed data: %w", err)
+	}
+
+	nullIdx := bytes.IndexByte(content, 0)
+	if nullIdx == -1 {
+		return nil, 0, fmt.Errorf("invalid object format")
+	}
+
+	header := string(content[:nullIdx])
+	parts := strings.SplitN(header, " ", 2)
+	if len(parts) != 2 {
+		return nil, 0, fmt.Errorf("invalid header: %s", header)
+	}
+
+	objectType := parts[0]
+
+	var typeNum byte
+	switch objectType {
+	case "commit":
+		typeNum = 1
+	case "tree":
+		typeNum = 2
+	case "blob":
+		typeNum = 3
+	case "tag":
+		typeNum = 4
+	default:
+		return nil, 0, fmt.Errorf("unsupported object type: %s", objectType)
+	}
+
+	return content[nullIdx+1:], typeNum, nil
 }
 
-// readLooseObjectHeader reads an object from loose object storage.
+// readLooseObject reads an object from loose object storage.
 func (r *Repository) readLooseObject(id Hash) (header string, content []byte, err error) {
 	objectPath := filepath.Join(r.gitDir, "objects", string(id)[:2], string(id)[2:])
 
@@ -172,29 +163,21 @@ func (r *Repository) readLooseObject(id Hash) (header string, content []byte, er
 	}
 	defer file.Close()
 
-	zr, err := zlib.NewReader(file)
+	content, err = r.readCompressedData(file)
 	if err != nil {
-		return "", nil, err
-	}
-	defer zr.Close()
-
-	var buf bytes.Buffer
-	_, err = io.Copy(&buf, zr)
-	if err != nil {
-		return "", nil, err
+		return "", nil, fmt.Errorf("invalid compressed data: %w", err)
 	}
 
-	content = buf.Bytes()
 	nullIdx := bytes.IndexByte(content, 0)
 	if nullIdx == -1 {
-		return "", nil, fmt.Errorf("invalid commit format")
+		return "", nil, fmt.Errorf("invalid object format")
 	}
 
 	header, content = string(content[:nullIdx]), content[nullIdx+1:]
 	return header, content, nil
 }
 
-// readPackedObject reads an object object from a pack file at the given offset.
+// readPackedObject reads an object from a pack file at the given offset.
 func (r *Repository) readPackedObject(packPath string, offset int64, id Hash) (Object, error) {
 	file, err := os.Open(packPath)
 	if err != nil {
@@ -214,8 +197,10 @@ func (r *Repository) readPackedObject(packPath string, offset int64, id Hash) (O
 	switch ObjectType(objectType) {
 	case CommitObject:
 		return r.parseCommitBody(objectData, id)
+	case TagObject:
+		return r.parseTagBody(objectData, id)
 	default:
-		return nil, fmt.Errorf("Unknown object type: %d", objectType)
+		return nil, fmt.Errorf("unknown object type: %d", objectType)
 	}
 }
 
@@ -246,14 +231,18 @@ func (r *Repository) parseCommitBody(body []byte, id Hash) (*Commit, error) {
 			commit.Tree = tree
 		} else if strings.HasPrefix(line, "author ") {
 			authorLine := strings.TrimPrefix(line, "author ")
-			if author, err := NewSignature(authorLine); err == nil {
-				commit.Author = author
+			author, err := NewSignature(authorLine)
+			if err != nil {
+				return nil, fmt.Errorf("invalid author signature: %w", err)
 			}
+			commit.Author = author
 		} else if strings.HasPrefix(line, "committer ") {
 			committerLine := strings.TrimPrefix(line, "committer ")
-			if committer, err := NewSignature(committerLine); err == nil {
-				commit.Committer = committer
+			committer, err := NewSignature(committerLine)
+			if err != nil {
+				return nil, fmt.Errorf("invalid committer signature: %w", err)
 			}
+			commit.Committer = committer
 		}
 	}
 
@@ -307,4 +296,20 @@ func (r *Repository) parseTagBody(body []byte, id Hash) (*Tag, error) {
 	tag.Message = strings.TrimSpace(tag.Message)
 
 	return tag, nil
+}
+
+// readCompressedData reads and decompresses zlib-compressed data at the current file position.
+func (r *Repository) readCompressedData(file *os.File) ([]byte, error) {
+	zr, err := zlib.NewReader(file)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create zlib reader: %w", err)
+	}
+	defer zr.Close()
+
+	var buf bytes.Buffer
+	if _, err := io.Copy(&buf, zr); err != nil {
+		return nil, fmt.Errorf("failed to decompress data: %w", err)
+	}
+
+	return buf.Bytes(), nil
 }
