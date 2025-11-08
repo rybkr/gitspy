@@ -10,7 +10,6 @@ import (
 
 // Repository represents a Git repository with its metadata and object storage.
 type Repository struct {
-    cow string
 	gitDir  string
 	workDir string
 
@@ -66,41 +65,6 @@ func (r *Repository) Name() string {
 	return filepath.Base(r.workDir)
 }
 
-// GetHEAD returns the current HEAD commit hash (from cache)
-func (r *Repository) GetHEAD() Hash {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.head
-}
-
-// GetHEADRef returns the symbolic ref HEAD points to (e.g., "refs/heads/main")
-// Returns empty string if HEAD is detached
-func (r *Repository) GetHEADRef() string {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.headRef
-}
-
-// Branches returns a copy of all branch references.
-func (r *Repository) Branches() map[string]Hash {
-	branches := make(map[string]Hash)
-	for ref, hash := range r.refs {
-		if strings.HasPrefix(ref, "refs/heads/") {
-			branches[ref] = hash
-		}
-	}
-	return branches
-}
-
-// Commits returns a copy of all commit references.
-func (r *Repository) Commits() map[Hash]*Commit {
-	result := make(map[Hash]*Commit)
-	for _, commit := range r.commits {
-		result[commit.ID] = commit
-	}
-	return result
-}
-
 // findGitDirectory locates the .git directory starting from the given path.
 // Returns both the .git directory and the working directory.
 func findGitDirectory(startPath string) (gitDir string, workDir string, err error) {
@@ -138,7 +102,7 @@ func findGitDirectory(startPath string) (gitDir string, workDir string, err erro
 }
 
 // handleGitFile handles the case where .git is a file (worktrees, submodules).
-// .git file format: "gitdir: /path/to/actual/.git"
+// .git file format: "gitdir: /path/to/actual/.git".
 func handleGitFile(gitFilePath string, workDir string) (string, string, error) {
 	content, err := os.ReadFile(gitFilePath)
 	if err != nil {

@@ -251,8 +251,7 @@ func (r *Repository) readPackObjectHeader(file *os.File) (objectType byte, size 
 	return objectType, size, nil
 }
 
-// readCompressedObject reads and decompresses zlib-compressed object data and ensures its size
-// matches the expected size.
+// readCompressedObject reads and decompresses zlib-compressed object data and ensures its size matches the expected size.
 func (r *Repository) readCompressedObject(file *os.File, expectedSize int64) ([]byte, error) {
 	content, err := r.readCompressedData(file)
 	if err != nil {

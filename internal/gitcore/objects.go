@@ -110,7 +110,7 @@ func (r *Repository) readObjectData(id Hash) ([]byte, byte, error) {
 	return nil, 0, fmt.Errorf("object not found: %s", id)
 }
 
-// readLooseObjectData reads a loose object and returns raw data
+// readLooseObjectData reads a loose object and returns raw data.
 func (r *Repository) readLooseObjectData(objectPath string) ([]byte, byte, error) {
 	file, err := os.Open(objectPath)
 	if err != nil {

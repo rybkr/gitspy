@@ -8,6 +8,10 @@ import (
 	"time"
 )
 
+var (
+	signatureRe = regexp.MustCompile("[<>]")
+)
+
 // Hash represents a Git object hash.
 type Hash string
 
@@ -32,21 +36,13 @@ func (h Hash) Short() string {
 	return string(h)[:7]
 }
 
-// IsValid checks if the hash has a valid format (40 hex characters for SHA-1).
-func (h Hash) IsValid() bool {
-	if len(string(h)) != 40 {
-		return false
-	}
-	_, err := hex.DecodeString(string(h))
-	return err == nil
-}
-
 // Object represents a generic Git object.
 type Object interface {
 	Type() ObjectType
 }
 
 // ObjectType denotes the type of a Git object (e.g., commit, tag).
+// See: https://git-scm.com/docs/pack-format#_object_types
 type ObjectType int
 
 const (
@@ -106,8 +102,7 @@ type Signature struct {
 
 // NewSignature parses a signature line in the format "Name <email> timestamp" and returns a Signature struct.
 func NewSignature(signLine string) (Signature, error) {
-	re := regexp.MustCompile("[<>]")
-	parts := re.Split(signLine, -1)
+	parts := signatureRe.Split(signLine, -1)
 	if len(parts) != 3 {
 		return Signature{}, fmt.Errorf("invalid signature line: %q", signLine)
 	}
