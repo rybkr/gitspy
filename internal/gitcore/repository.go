@@ -65,6 +65,11 @@ func (r *Repository) Name() string {
 	return filepath.Base(r.workDir)
 }
 
+// GitDir returns the path to the repository's .git folder.
+func (r *Repository) GitDir() string {
+	return r.gitDir
+}
+
 // findGitDirectory locates the .git directory starting from the given path.
 // Returns both the .git directory and the working directory.
 func findGitDirectory(startPath string) (gitDir string, workDir string, err error) {

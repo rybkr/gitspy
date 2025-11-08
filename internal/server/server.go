@@ -54,7 +54,7 @@ type Server struct {
 	// This is optimal since reads vastly outnumber writes.
 	mu     sync.RWMutex
 	cached struct {
-		repoInfo *gitcore.RepositoryInfo
+		repoInfo *gitcore.Repository
 		graph    interface{}
 		status   interface{}
 	}
@@ -103,7 +103,7 @@ func (s *Server) Start() error {
 
 	s.wg.Add(2)
 	go s.handleBroadcast()
-	go s.pollRepo()
+	go s.startWatcher()
 
 	// NOTE: ListenAndServe blocks until the server exits.
 	log.Printf("GitVista server starting on port %s", s.port)

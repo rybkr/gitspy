@@ -2,8 +2,8 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"github.com/rybkr/gitvista/internal/gitcore"
+	"github.com/rybkr/gitvista/internal/server"
 	"log"
 )
 
@@ -16,9 +16,6 @@ func main() {
 		log.Fatal(err)
 	}
 
-	//fmt.Println(repo.Branches())
-
-	for _, c := range repo.Commits() {
-		fmt.Println(c.ID)
-	}
+    serv := server.NewServer(repo, "8080")
+    serv.Start()
 }
