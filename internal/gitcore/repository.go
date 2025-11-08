@@ -10,6 +10,7 @@ import (
 
 // Repository represents a Git repository with its metadata and object storage.
 type Repository struct {
+    cow string
 	gitDir  string
 	workDir string
 
