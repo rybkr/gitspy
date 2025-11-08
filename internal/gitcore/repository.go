@@ -91,11 +91,13 @@ func (r *Repository) Branches() map[string]Hash {
 	return branches
 }
 
-// Tags returns all tag objects in the repository.
-func (r *Repository) Tags() []*Tag {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.tags
+// Commits returns a copy of all commit references.
+func (r *Repository) Commits() map[Hash]*Commit {
+	result := make(map[Hash]*Commit)
+	for _, commit := range r.commits {
+		result[commit.ID] = commit
+	}
+	return result
 }
 
 // findGitDirectory locates the .git directory starting from the given path.

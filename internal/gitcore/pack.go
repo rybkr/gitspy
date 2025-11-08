@@ -186,7 +186,7 @@ func (r *Repository) loadPackIndexV2(file *os.File, idxPath string) (*PackIndex,
 
 		offset := offsets[i]
 		if offset&0x80000000 != 0 {
-			largeOffsetIdx := offset & 0x7fffffff
+			largeOffsetIdx := offset & 0x7Fffffff
 			if largeOffsetIdx >= uint32(len(largeOffsets)) {
 				continue
 			}
@@ -203,17 +203,23 @@ func (r *Repository) loadPackIndexV2(file *os.File, idxPath string) (*PackIndex,
 // Returns the decompressed object data and its type.
 // See: https://git-scm.com/docs/pack-format#_pack_pack_files_have_the_following_format
 func (r *Repository) readPackObject(file *os.File) (data []byte, objectType byte, err error) {
+	objStart, err := file.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return nil, 0, err
+	}
+
 	objType, size, err := r.readPackObjectHeader(file)
 	if err != nil {
 		return nil, 0, err
 	}
 
+	// See: https://git-scm.com/docs/pack-format#_object_types
 	switch objType {
 	case 1, 2, 3, 4:
 		data, err := r.readCompressedObject(file, size)
 		return data, objType, err
 	case 6:
-		return r.readOfsDelta(file, size)
+		return r.readOffsetDelta(file, size, objStart)
 	case 7:
 		return r.readRefDelta(file, size)
 	default:
@@ -259,15 +265,16 @@ func (r *Repository) readCompressedObject(file *os.File, expectedSize int64) ([]
 	return content, nil
 }
 
-// readOfsDelta reads an offset delta object.
-func (r *Repository) readOfsDelta(file *os.File, size int64) ([]byte, byte, error) {
+// readOffsetDelta reads an offset delta object.
+// Returns the resulting data after applying the delta and the type of data referred to.
+// See: https://git-scm.com/docs/pack-format#_deltified_representation
+func (r *Repository) readOffsetDelta(file *os.File, size, objStart int64) ([]byte, byte, error) {
 	var b [1]byte
+
 	if _, err := file.Read(b[:]); err != nil {
 		return nil, 0, err
 	}
-
 	offset := int64(b[0] & 0x7F)
-
 	for b[0]&0x80 != 0 {
 		if _, err := file.Read(b[:]); err != nil {
 			return nil, 0, err
@@ -279,12 +286,9 @@ func (r *Repository) readOfsDelta(file *os.File, size int64) ([]byte, byte, erro
 	if err != nil {
 		return nil, 0, err
 	}
-
-	basePos := beforeDelta - offset - 2
-
 	deltaData, err := r.readCompressedObject(file, size)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to read delta data at %d: %w", basePos, err)
+		return nil, 0, fmt.Errorf("failed to read offset delta data at %d: %w", beforeDelta, err)
 	}
 
 	afterDelta, err := file.Seek(0, io.SeekCurrent)
@@ -292,27 +296,29 @@ func (r *Repository) readOfsDelta(file *os.File, size int64) ([]byte, byte, erro
 		return nil, 0, err
 	}
 
+	basePos := objStart - offset
 	if _, err := file.Seek(basePos, 0); err != nil {
-		return nil, 0, fmt.Errorf("failed to seek to base object: %w", err)
+		return nil, 0, fmt.Errorf("failed to seek to base object at %d: %w", basePos, err)
 	}
 	baseData, baseType, err := r.readPackObject(file)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to read base object at %d (type %d): %w", basePos, baseType, err)
 	}
-
 	if _, err := file.Seek(afterDelta, 0); err != nil {
 		return nil, 0, err
 	}
 
 	result, err := r.applyDelta(baseData, deltaData)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to apply delta: %w", err)
+		return nil, 0, fmt.Errorf("failed to apply offset delta: %w", err)
 	}
 
 	return result, baseType, nil
 }
 
 // readRefDelta reads a reference delta object.
+// Returns the resulting data after applying the delta and the type of data referred to.
+// See: https://git-scm.com/docs/pack-format#_deltified_representation
 func (r *Repository) readRefDelta(file *os.File, size int64) ([]byte, byte, error) {
 	var baseHash [20]byte
 	if _, err := io.ReadFull(file, baseHash[:]); err != nil {
@@ -323,9 +329,13 @@ func (r *Repository) readRefDelta(file *os.File, size int64) ([]byte, byte, erro
 		return nil, 0, fmt.Errorf("invalid hash: %w", err)
 	}
 
+	beforeDelta, err := file.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return nil, 0, err
+	}
 	deltaData, err := r.readCompressedObject(file, size)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to read delta data: %w", err)
+		return nil, 0, fmt.Errorf("failed to read ref delta data at %d: %w", beforeDelta, err)
 	}
 
 	baseData, baseType, err := r.readObjectData(baseHashStr)
@@ -335,13 +345,15 @@ func (r *Repository) readRefDelta(file *os.File, size int64) ([]byte, byte, erro
 
 	result, err := r.applyDelta(baseData, deltaData)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to apply delta: %w", err)
+		return nil, 0, fmt.Errorf("failed to apply ref delta: %w", err)
 	}
 
 	return result, baseType, nil
 }
 
 // applyDelta applies a delta to a base object.
+// Returns the resulting data after applying the delta instructions.
+// See: https://git-scm.com/docs/pack-format#_deltified_representation
 func (r *Repository) applyDelta(base []byte, delta []byte) ([]byte, error) {
 	src := bytes.NewReader(delta)
 
@@ -370,71 +382,46 @@ func (r *Repository) applyDelta(base []byte, delta []byte) ([]byte, error) {
 			return nil, err
 		}
 
+		// The instruction type is determined by the seventh bit of the first byte.
 		if cmd[0]&0x80 != 0 {
+			// See: https://git-scm.com/docs/pack-format#_instruction_to_copy_from_base_object
 			var offset, size int64
 
-			if cmd[0]&0x01 != 0 {
-				var b [1]byte
-				if _, err := src.Read(b[:]); err != nil {
-					return nil, err
+			for i := 0; i < 4; i++ {
+				if cmd[0]&(0x01<<i) != 0 {
+					var b [1]byte
+					if _, err := src.Read(b[:]); err != nil {
+						return nil, err
+					}
+					offset |= int64(b[0]) << (8 * i)
 				}
-				offset = int64(b[0])
-			}
-			if cmd[0]&0x02 != 0 {
-				var b [1]byte
-				if _, err := src.Read(b[:]); err != nil {
-					return nil, err
-				}
-				offset |= int64(b[0]) << 8
-			}
-			if cmd[0]&0x04 != 0 {
-				var b [1]byte
-				if _, err := src.Read(b[:]); err != nil {
-					return nil, err
-				}
-				offset |= int64(b[0]) << 16
-			}
-			if cmd[0]&0x08 != 0 {
-				var b [1]byte
-				if _, err := src.Read(b[:]); err != nil {
-					return nil, err
-				}
-				offset |= int64(b[0]) << 24
 			}
 
-			if cmd[0]&0x10 != 0 {
-				var b [1]byte
-				if _, err := src.Read(b[:]); err != nil {
-					return nil, err
+			for i := 0; i < 3; i++ {
+				if cmd[0]&(0x10<<i) != 0 {
+					var b [1]byte
+					if _, err := src.Read(b[:]); err != nil {
+						return nil, err
+					}
+					size |= int64(b[0]) << (8 * i)
 				}
-				size = int64(b[0])
-			}
-			if cmd[0]&0x20 != 0 {
-				var b [1]byte
-				if _, err := src.Read(b[:]); err != nil {
-					return nil, err
-				}
-				size |= int64(b[0]) << 8
-			}
-			if cmd[0]&0x40 != 0 {
-				var b [1]byte
-				if _, err := src.Read(b[:]); err != nil {
-					return nil, err
-				}
-				size |= int64(b[0]) << 16
 			}
 
+			// "Size zero is automatically converted to 0x10000."
 			if size == 0 {
 				size = 0x10000
 			}
-
 			if offset+size > int64(len(base)) {
-				return nil, fmt.Errorf("copy exceeds base size")
+				return nil, fmt.Errorf("copy of %d exceeds base size of %d", offset+size, int64(len(base)))
 			}
 			result = append(result, base[offset:offset+size]...)
 
 		} else if cmd[0] != 0 {
-			size := int(cmd[0] & 0x7f)
+			// See: https://git-scm.com/docs/pack-format#_instruction_to_add_new_data
+			size := int(cmd[0] & 0x7F)
+            if size == 0 {
+                return nil, fmt.Errorf("copy of size zero is illegal")
+            }
 			data := make([]byte, size)
 			if _, err := io.ReadFull(src, data); err != nil {
 				return nil, err
@@ -442,6 +429,7 @@ func (r *Repository) applyDelta(base []byte, delta []byte) ([]byte, error) {
 			result = append(result, data...)
 
 		} else {
+			// See: https://git-scm.com/docs/pack-format#_reserved_instruction
 			return nil, fmt.Errorf("invalid delta command: 0")
 		}
 	}
@@ -453,20 +441,19 @@ func (r *Repository) applyDelta(base []byte, delta []byte) ([]byte, error) {
 	return result, nil
 }
 
-// readVarInt reads a variable-length integer
+// readVariableLengthInt reads a variable-length integer according to the size encoding spec.
+// See: https://git-scm.com/docs/pack-format#_size_encoding
 func (r *Repository) readVarInt(src *bytes.Reader) (int64, error) {
-	var result int64
-	var shift uint
+	var result int64 = 0
+	var shift uint = 0
 
 	for {
 		var b [1]byte
 		if _, err := src.Read(b[:]); err != nil {
 			return 0, err
 		}
-
-		result |= int64(b[0]&0x7f) << shift
+		result |= int64(b[0]&0x7F) << shift
 		shift += 7
-
 		if b[0]&0x80 == 0 {
 			break
 		}

@@ -116,13 +116,8 @@ func NewSignature(signLine string) (Signature, error) {
 	email := strings.TrimSpace(parts[1])
 
 	timePart := strings.TrimSpace(parts[2])
-	if timePart == "" {
-		return Signature{}, fmt.Errorf("invalid signature line: missing timestamp: %q", signLine)
-	}
-
-	// Parse timestamp (format: "timestamp timezone" or just "timestamp")
 	timeFields := strings.Fields(timePart)
-	if len(timeFields) == 0 {
+	if timePart == "" || len(timeFields) == 0 {
 		return Signature{}, fmt.Errorf("invalid signature line: missing timestamp: %q", signLine)
 	}
 
