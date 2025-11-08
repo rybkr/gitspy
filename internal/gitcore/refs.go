@@ -1,6 +1,7 @@
 package gitcore
 
 import (
+	"bufio"
 	"fmt"
 	"log"
 	"os"
@@ -14,10 +15,13 @@ func (r *Repository) loadRefs() error {
 	defer r.mu.Unlock()
 
 	if err := r.loadLooseRefs("heads"); err != nil {
-		return fmt.Errorf("failed to load branches: %w", err)
+		return fmt.Errorf("failed to load loose branches: %w", err)
 	}
 	if err := r.loadLooseRefs("tags"); err != nil {
-		return fmt.Errorf("failed to load tags: %w", err)
+		return fmt.Errorf("failed to load loose tags: %w", err)
+	}
+	if err := r.loadPackedRefs(); err != nil {
+		return fmt.Errorf("failed to load packed refs: %w", err)
 	}
 	if err := r.loadHEAD(); err != nil {
 		return fmt.Errorf("failed to load head: %w", err)
@@ -64,7 +68,44 @@ func (r *Repository) loadLooseRefs(prefix string) error {
 	})
 }
 
-// loadHEAD reads and caches HEAD information
+// loadPackedRefs reads the packed-refs file and loads all refs within.
+func (r *Repository) loadPackedRefs() error {
+	packedRefsFile := filepath.Join(r.gitDir, "packed-refs")
+
+	file, err := os.Open(packedRefsFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "^") {
+			continue
+		}
+
+		parts := strings.Fields(line)
+		if len(parts) != 2 {
+			continue
+		}
+
+		hash, err := NewHash(parts[0])
+		if err != nil {
+			continue
+		}
+
+		refName := parts[1]
+		r.refs[refName] = hash
+	}
+
+	return scanner.Err()
+}
+
+// loadHEAD reads and caches HEAD information.
 func (r *Repository) loadHEAD() error {
 	headPath := filepath.Join(r.gitDir, "HEAD")
 	content, err := os.ReadFile(headPath)
