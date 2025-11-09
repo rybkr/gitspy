@@ -144,7 +144,7 @@ export function createGraph(rootElement) {
             node.vy = 0;
         });
 
-        simulation.alpha(1.25).restart();
+        simulation.alpha(2.0).restart();
         simulation.alphaTarget(0);
     };
 
@@ -174,7 +174,7 @@ export function createGraph(rootElement) {
             if (charge) {
                 charge.strength(-110);
             }
-            simulation.alpha(0.6).restart();
+            simulation.alpha(1.0).restart();
             simulation.alphaTarget(0);
         }
         updateHoverCursor();
@@ -283,7 +283,7 @@ export function createGraph(rootElement) {
                 const distance = Math.hypot(x - dragState.startX, y - dragState.startY);
                 if (distance > 3) {
                     dragState.moved = true;
-                    simulation.alphaTarget(0.25).restart();
+                    simulation.alphaTarget(1.0).restart();
                 }
             }
             render();
@@ -441,7 +441,7 @@ export function createGraph(rootElement) {
         if (layoutMode === "timeline") {
             snapTimelineLayout();
         } else {
-            simulation.alpha(0.6).restart();
+            simulation.alpha(1.0).restart();
             simulation.alphaTarget(0);
         }
     }
