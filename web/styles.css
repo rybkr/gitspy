@@ -8,6 +8,10 @@
     --link-color: #afb8c1;
     --label-text-color: #24292f;
     --label-halo-color: rgba(246, 248, 250, 0.92);
+    --node-highlight-color: #1f6feb;
+    --node-highlight-glow: rgba(79, 140, 255, 0.45);
+    --node-highlight-core: #dbe9ff;
+    --node-highlight-ring: #1f6feb;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -20,6 +24,10 @@
         --link-color: #484f58;
         --label-text-color: #f0f6fc;
         --label-halo-color: rgba(1, 4, 9, 0.85);
+        --node-highlight-color: #539bf5;
+        --node-highlight-glow: rgba(83, 155, 245, 0.45);
+        --node-highlight-core: #1e2a3a;
+        --node-highlight-ring: #539bf5;
     }
 }
 
@@ -100,4 +108,60 @@ canvas {
 .graph-controls button:focus-visible {
     outline: 2px solid var(--node-color);
     outline-offset: 2px;
+}
+
+.commit-tooltip {
+    position: fixed;
+    pointer-events: none;
+    background: var(--surface-color);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    box-shadow: 0 16px 34px rgba(15, 23, 42, 0.22);
+    padding: 12px 14px;
+    max-width: min(360px, 70vw);
+    display: none;
+    flex-direction: column;
+    gap: 8px;
+    z-index: 15;
+    opacity: 0;
+    transition: opacity 0.12s ease;
+}
+
+.commit-tooltip:not([hidden]) {
+    opacity: 1;
+}
+
+.commit-tooltip__header {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--text-color);
+}
+
+.commit-tooltip__hash {
+    font-family: ui-monospace, SFMono-Regular, SFMono, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 12px;
+    font-weight: 600;
+    background: rgba(148, 163, 184, 0.18);
+    border-radius: 6px;
+    padding: 4px 6px;
+    width: max-content;
+}
+
+.commit-tooltip__meta {
+    white-space: pre-wrap;
+    font-family: ui-monospace, SFMono-Regular, SFMono, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    color: rgba(99, 110, 123, 0.95);
+}
+
+.commit-tooltip__message {
+    margin: 0;
+    white-space: pre-wrap;
+    font-family: ui-monospace, SFMono-Regular, SFMono, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-color);
 }

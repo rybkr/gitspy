@@ -8,8 +8,9 @@ const COLLISION_RADIUS = 14;
 const LINK_THICKNESS = NODE_RADIUS * 0.32;
 const ARROW_LENGTH = NODE_RADIUS * 2;
 const ARROW_WIDTH = NODE_RADIUS * 1.35;
-const HOVER_RADIUS = 18;
-const DRAG_THRESHOLD = 3;
+const HOVER_RADIUS = 12;
+const DRAG_ACTIVATION_DISTANCE = 4;
+const CLICK_TOLERANCE = 6;
 const TIMELINE_SPACING = 0.95;
 const TIMELINE_PADDING = 160;
 const TIMELINE_FALLBACK_GAP = 320;
@@ -26,6 +27,9 @@ const BRANCH_NODE_PADDING_Y = 6;
 const BRANCH_NODE_CORNER_RADIUS = 6;
 const BRANCH_NODE_OFFSET_Y = 26;
 const BRANCH_NODE_RADIUS = 18;
+const TOOLTIP_OFFSET_X = 18;
+const TOOLTIP_OFFSET_Y = -24;
+const HIGHLIGHT_NODE_RADIUS = NODE_RADIUS + 2.5;
 
 export function createGraph(rootElement) {
     const canvas = document.createElement("canvas");
@@ -66,6 +70,156 @@ export function createGraph(rootElement) {
         ctx.closePath();
     };
 
+    const tooltip = document.createElement("div");
+    tooltip.className = "commit-tooltip";
+    tooltip.hidden = true;
+
+    const tooltipHeader = document.createElement("div");
+    tooltipHeader.className = "commit-tooltip__header";
+
+    const tooltipHash = document.createElement("code");
+    tooltipHash.className = "commit-tooltip__hash";
+
+    const tooltipMeta = document.createElement("div");
+    tooltipMeta.className = "commit-tooltip__meta";
+
+    tooltipHeader.append(tooltipHash, tooltipMeta);
+
+    const tooltipMessage = document.createElement("pre");
+    tooltipMessage.className = "commit-tooltip__message";
+
+    tooltip.append(tooltipHeader, tooltipMessage);
+    document.body.appendChild(tooltip);
+
+    let tooltipNode = null;
+    let tooltipVisible = false;
+    let highlightedHash = null;
+
+    const summarizeHash = (value) => {
+        if (!value) {
+            return "";
+        }
+        if (typeof value === "string") {
+            return shortenHash(value);
+        }
+        if (typeof value === "object") {
+            const raw = value.hash ?? value.Hash ?? value.id ?? value.ID ?? value;
+            if (typeof raw === "string") {
+                return shortenHash(raw);
+            }
+        }
+        return shortenHash(String(value));
+    };
+
+    const formatSignature = (label, signature) => {
+        if (!signature) {
+            return null;
+        }
+        const name = signature.name ?? signature.Name ?? "";
+        const email = signature.email ?? signature.Email ?? "";
+        const when = signature.when ?? signature.When;
+        const fragments = [label];
+        const identity = `${name}${email ? ` <${email}>` : ""}`.trim();
+        if (identity) {
+            fragments.push(identity);
+        }
+        if (when) {
+            try {
+                const timestamp = new Date(when).toISOString();
+                fragments.push(timestamp);
+            } catch {
+                // ignore parse errors
+            }
+        }
+        return fragments.join("    ");
+    };
+
+    const buildTooltipContent = (node) => {
+        const commit = node?.commit;
+        if (!commit) {
+            return null;
+        }
+
+        const fullHash = commit.hash ?? commit.Hash ?? node.hash ?? "";
+        tooltipHash.textContent = `commit ${fullHash}`.trim();
+
+        const parents = commit.parents ?? commit.Parents ?? [];
+        const parentLine = parents.length
+            ? `Parent${parents.length > 1 ? "s" : ""}: ${parents.map(summarizeHash).join(" ")}`
+            : "";
+
+        const metaLines = [];
+        const author = formatSignature("Author:", commit.author ?? commit.Author);
+        if (author) {
+            metaLines.push(author);
+        }
+        const committer = formatSignature("Committer:", commit.committer ?? commit.Committer);
+        if (committer && committer !== author) {
+            metaLines.push(committer);
+        }
+        if (parentLine) {
+            metaLines.unshift(parentLine);
+        }
+        tooltipMeta.textContent = metaLines.join("\n");
+
+        const message = (commit.message ?? commit.Message ?? "").replace(/\r\n/g, "\n").trimEnd();
+        tooltipMessage.textContent = message;
+
+        return true;
+    };
+
+    const updateTooltipPosition = () => {
+        if (!tooltipVisible || !tooltipNode) {
+            return;
+        }
+        const [tx, ty] = zoomTransform.apply([tooltipNode.x, tooltipNode.y]);
+        const canvasRect = canvas.getBoundingClientRect();
+        let left = canvasRect.left + tx + TOOLTIP_OFFSET_X;
+        let top = canvasRect.top + ty + TOOLTIP_OFFSET_Y;
+
+        const tooltipRect = tooltip.getBoundingClientRect();
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        const maxLeft = viewportWidth - tooltipRect.width - 12;
+        const maxTop = viewportHeight - tooltipRect.height - 12;
+        left = Math.max(12, Math.min(left, maxLeft));
+        top = Math.max(12, Math.min(top, maxTop));
+
+        tooltip.style.transform = `translate(${left}px, ${top}px)`;
+    };
+
+    const hideCommitTooltip = () => {
+        if (!tooltipVisible) {
+            return;
+        }
+        tooltip.hidden = true;
+        tooltip.style.display = "none";
+        tooltip.style.opacity = "0";
+        tooltipVisible = false;
+        tooltipNode = null;
+        highlightedHash = null;
+        render();
+    };
+
+    const showCommitTooltip = (node) => {
+        if (!node?.commit) {
+            hideCommitTooltip();
+            return;
+        }
+        if (!buildTooltipContent(node)) {
+            hideCommitTooltip();
+            return;
+        }
+        tooltipNode = node;
+        tooltip.hidden = false;
+        tooltip.style.display = "flex";
+        tooltip.style.opacity = "1";
+        tooltipVisible = true;
+        highlightedHash = node.hash;
+        updateTooltipPosition();
+        render();
+    };
+
     const toGraphCoordinates = (event) => {
         const rect = canvas.getBoundingClientRect();
         const point = [event.clientX - rect.left, event.clientY - rect.top];
@@ -73,22 +227,28 @@ export function createGraph(rootElement) {
         return { x, y };
     };
 
-    const findNearestNode = (x, y, radius) => {
-        const radiusSq = radius * radius;
-        let nearest = null;
-        let nearestDistance = radiusSq;
+    const PICK_RADIUS_COMMIT = NODE_RADIUS + 4;
+    const PICK_RADIUS_BRANCH = BRANCH_NODE_RADIUS + 6;
+
+    const findNodeAt = (x, y, type) => {
+        let bestNode = null;
+        let bestDist = Infinity;
 
         for (const node of nodes) {
+            if (type && node.type !== type) {
+                continue;
+            }
             const dx = x - node.x;
             const dy = y - node.y;
             const distSq = dx * dx + dy * dy;
-            if (distSq <= nearestDistance) {
-                nearest = node;
-                nearestDistance = distSq;
+            const radius = node.type === "branch" ? PICK_RADIUS_BRANCH : PICK_RADIUS_COMMIT;
+            if (distSq <= radius * radius && distSq < bestDist) {
+                bestDist = distSq;
+                bestNode = node;
             }
         }
 
-        return nearest;
+        return bestNode;
     };
 
     const snapTimelineLayout = () => {
@@ -224,21 +384,6 @@ export function createGraph(rootElement) {
             simulation.alpha(1.0).restart();
             simulation.alphaTarget(0);
         }
-        updateHoverCursor();
-    };
-
-    const updateHoverCursor = (event) => {
-        if (isDraggingNode) {
-            canvas.style.cursor = "grabbing";
-            return;
-        }
-        if (!event) {
-            canvas.style.cursor = "default";
-            return;
-        }
-        const { x, y } = toGraphCoordinates(event);
-        const hovered = findNearestNode(x, y, HOVER_RADIUS);
-        canvas.style.cursor = hovered ? "grab" : "default";
     };
 
     const releaseDrag = (event) => {
@@ -262,17 +407,7 @@ export function createGraph(rootElement) {
 
         dragState = null;
         isDraggingNode = false;
-
-        if (!current.moved) {
-            render();
-        }
         simulation.alphaTarget(0);
-
-        if (event) {
-            updateHoverCursor(event);
-        } else {
-            canvas.style.cursor = "default";
-        }
     };
 
     const handlePointerDown = (event) => {
@@ -281,10 +416,21 @@ export function createGraph(rootElement) {
         }
 
         const { x, y } = toGraphCoordinates(event);
-        const targetNode = findNearestNode(x, y, HOVER_RADIUS);
+        const targetNode = findNodeAt(x, y, "commit") ?? findNodeAt(x, y);
 
         if (!targetNode) {
+            hideCommitTooltip();
             return;
+        }
+
+        if (targetNode.type !== "commit") {
+            hideCommitTooltip();
+        } else {
+            if (tooltipVisible && tooltipNode === targetNode) {
+                hideCommitTooltip();
+            } else {
+                showCommitTooltip(targetNode);
+            }
         }
 
         event.stopImmediatePropagation();
@@ -296,7 +442,7 @@ export function createGraph(rootElement) {
             pointerId: event.pointerId,
             startX: x,
             startY: y,
-            moved: false,
+            dragged: false,
         };
 
         targetNode.fx = x;
@@ -304,15 +450,11 @@ export function createGraph(rootElement) {
         targetNode.vx = 0;
         targetNode.vy = 0;
 
-        if (canvas.setPointerCapture) {
-            try {
-                canvas.setPointerCapture(event.pointerId);
-            } catch {
-                // ignore
-            }
+        try {
+            canvas.setPointerCapture(event.pointerId);
+        } catch {
+            // ignore
         }
-
-        canvas.style.cursor = "grabbing";
     };
 
     const handlePointerMove = (event) => {
@@ -326,25 +468,25 @@ export function createGraph(rootElement) {
             dragState.node.x = x;
             dragState.node.y = y;
 
-            if (!dragState.moved) {
+            if (!dragState.dragged) {
                 const distance = Math.hypot(x - dragState.startX, y - dragState.startY);
-                if (distance > DRAG_THRESHOLD) {
-                    dragState.moved = true;
-                    simulation.alphaTarget(1.0).restart();
+                if (distance > DRAG_ACTIVATION_DISTANCE) {
+                    dragState.dragged = true;
+                    hideCommitTooltip();
                 }
+            }
+
+            if (dragState.dragged) {
+                simulation.alphaTarget(0.4).restart();
             }
             render();
             return;
         }
-
-        updateHoverCursor(event);
     };
 
     const handlePointerUp = (event) => {
         if (dragState && event.pointerId === dragState.pointerId) {
             releaseDrag(event);
-        } else {
-            updateHoverCursor(event);
         }
     };
 
@@ -430,7 +572,6 @@ export function createGraph(rootElement) {
     canvas.addEventListener("pointerup", pointerHandlers.up);
     canvas.addEventListener("pointercancel", pointerHandlers.cancel);
 
-    updateHoverCursor();
     setLayoutMode("timeline", { force: true });
 
     function applyDelta(delta) {
@@ -487,6 +628,7 @@ export function createGraph(rootElement) {
             node.type = "commit";
             node.hash = commit.hash;
             node.commit = commit;
+            node.radius = node.radius ?? NODE_RADIUS;
             nextCommitNodes.push(node);
             if (!existingCommitNodes.has(commit.hash)) {
                 commitStructureChanged = true;
@@ -559,6 +701,10 @@ export function createGraph(rootElement) {
 
         if (dragState && !nodes.includes(dragState.node)) {
             releaseDrag();
+        }
+
+        if (tooltipNode && !commitNodeByHash.has(tooltipNode.hash)) {
+            hideCommitTooltip();
         }
 
         simulation.nodes(nodes);
@@ -694,10 +840,44 @@ export function createGraph(rootElement) {
                 continue;
             }
 
-            context.fillStyle = palette.node;
+            const isHighlighted = highlightedHash && node.hash === highlightedHash;
+            const currentRadius = node.radius ?? NODE_RADIUS;
+            const targetRadius = isHighlighted ? HIGHLIGHT_NODE_RADIUS : NODE_RADIUS;
+            const nodeRadius = currentRadius + (targetRadius - currentRadius) * 0.25;
+            node.radius = nodeRadius;
+
+            if (isHighlighted) {
+                context.save();
+                context.fillStyle = palette.nodeHighlightGlow;
+                context.beginPath();
+                context.arc(node.x, node.y, nodeRadius + 7, 0, Math.PI * 2);
+                context.globalAlpha = 0.35;
+                context.fill();
+                context.restore();
+
+                const gradient = context.createRadialGradient(node.x, node.y, nodeRadius * 0.2, node.x, node.y, nodeRadius);
+                gradient.addColorStop(0, palette.nodeHighlightCore);
+                gradient.addColorStop(0.7, palette.nodeHighlight);
+                gradient.addColorStop(1, palette.nodeHighlightRing);
+                context.fillStyle = gradient;
+            } else {
+                context.fillStyle = palette.node;
+            }
+
             context.beginPath();
-            context.arc(node.x, node.y, NODE_RADIUS, 0, Math.PI * 2);
+            context.arc(node.x, node.y, nodeRadius, 0, Math.PI * 2);
             context.fill();
+
+            if (isHighlighted) {
+                context.save();
+                context.lineWidth = 1.25;
+                context.strokeStyle = palette.nodeHighlight;
+                context.globalAlpha = 0.8;
+                context.beginPath();
+                context.arc(node.x, node.y, nodeRadius + 1.8, 0, Math.PI * 2);
+                context.stroke();
+                context.restore();
+            }
 
             if (node.commit?.hash) {
                 context.save();
@@ -758,6 +938,7 @@ export function createGraph(rootElement) {
         }
 
         context.restore();
+        updateTooltipPosition();
     }
 
     function tick() {
@@ -818,6 +999,10 @@ function buildPalette(element) {
         branchNodeBorder: read("--branch-node-border-color", "#59339d"),
         branchLabelText: read("--branch-label-text-color", "#ffffff"),
         branchLink: read("--branch-link-color", "#6f42c1"),
+        nodeHighlight: read("--node-highlight-color", "#1f6feb"),
+        nodeHighlightGlow: read("--node-highlight-glow", "rgba(79, 140, 255, 0.45)"),
+        nodeHighlightCore: read("--node-highlight-core", "#dbe9ff"),
+        nodeHighlightRing: read("--node-highlight-ring", "#1f6feb"),
     };
 }
 
