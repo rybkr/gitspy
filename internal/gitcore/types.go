@@ -149,3 +149,20 @@ func (p *PackIndex) FindObject(id Hash) (int64, bool) {
 func (p *PackIndex) PackFile() string {
 	return p.packPath
 }
+
+// RepositoryDelta represents the difference between two repositories in a digestable format.
+// This structure gets sent to the front end during live updates.
+type RepositoryDelta struct {
+	AddedCommits   []*Commit
+	DeletedCommits []*Commit
+}
+
+// NewRepositoryDelta returns a new RepositoryDelta struct.
+func NewRepositoryDelta() *RepositoryDelta {
+    return &RepositoryDelta{}
+}
+
+// IsEmpty reports whether a RepositoryDelta represents no difference.
+func (d *RepositoryDelta) IsEmpty() bool {
+    return len(d.AddedCommits) == 0 && len(d.DeletedCommits) == 0
+}

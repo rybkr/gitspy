@@ -70,6 +70,36 @@ func (r *Repository) GitDir() string {
 	return r.gitDir
 }
 
+// Commits returns a map of all commit IDs to Commit structs.
+func (r *Repository) Commits() map[Hash]*Commit {
+	result := make(map[Hash]*Commit)
+	for _, commit := range r.commits {
+		result[commit.ID] = commit
+	}
+	return result
+}
+
+// Diff returns the difference between this repository and another,
+// represented as a RepositoryDelta struct.
+// It treats r as the new repository and old as the old repository.
+func (r *Repository) Diff(old *Repository) *RepositoryDelta {
+	delta := NewRepositoryDelta()
+
+	newCommits, oldCommits := r.Commits(), old.Commits()
+	for hash, commit := range newCommits {
+		if _, found := oldCommits[hash]; !found {
+			delta.AddedCommits = append(delta.AddedCommits, commit)
+		}
+	}
+	for hash, commit := range oldCommits {
+		if _, found := newCommits[hash]; !found {
+			delta.DeletedCommits = append(delta.DeletedCommits, commit)
+		}
+	}
+
+	return delta
+}
+
 // findGitDirectory locates the .git directory starting from the given path.
 // Returns both the .git directory and the working directory.
 func findGitDirectory(startPath string) (gitDir string, workDir string, err error) {
