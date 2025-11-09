@@ -155,11 +155,19 @@ func (p *PackIndex) PackFile() string {
 type RepositoryDelta struct {
 	AddedCommits   []*Commit `json:"addedCommits"`
 	DeletedCommits []*Commit `json:"deletedCommits"`
+
+	AddedBranches   map[string]Hash `json:"addedBranches"`
+	AmendedBranches map[string]Hash `json:"amendedBranches"`
+	DeletedBranches map[string]Hash `json:"deletedBranches"`
 }
 
 // NewRepositoryDelta returns a new RepositoryDelta struct.
 func NewRepositoryDelta() *RepositoryDelta {
-	return &RepositoryDelta{}
+	return &RepositoryDelta{
+		AddedBranches:   make(map[string]Hash),
+		AmendedBranches: make(map[string]Hash),
+		DeletedBranches: make(map[string]Hash),
+	}
 }
 
 // IsEmpty reports whether a RepositoryDelta represents no difference.

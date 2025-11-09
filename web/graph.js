@@ -21,6 +21,11 @@ const LABEL_FONT =
 const LABEL_PADDING = 9;
 const ZOOM_MIN = 0.25;
 const ZOOM_MAX = 4;
+const BRANCH_NODE_PADDING_X = 10;
+const BRANCH_NODE_PADDING_Y = 6;
+const BRANCH_NODE_CORNER_RADIUS = 6;
+const BRANCH_NODE_OFFSET_Y = 26;
+const BRANCH_NODE_RADIUS = 18;
 
 export function createGraph(rootElement) {
     const canvas = document.createElement("canvas");
@@ -29,6 +34,7 @@ export function createGraph(rootElement) {
 
     const context = canvas.getContext("2d", { alpha: false });
     const commits = new Map();
+    const branches = new Map();
     const nodes = [];
     const links = [];
 
@@ -44,6 +50,21 @@ export function createGraph(rootElement) {
     let viewportHeight = 0;
 
     canvas.style.cursor = "default";
+
+    const drawRoundedRect = (ctx, x, y, width, height, radius) => {
+        const r = Math.max(0, Math.min(radius, Math.min(width, height) / 2));
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.lineTo(x + width - r, y);
+        ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+        ctx.lineTo(x + width, y + height - r);
+        ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+        ctx.lineTo(x + r, y + height);
+        ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+        ctx.lineTo(x, y + r);
+        ctx.quadraticCurveTo(x, y, x + r, y);
+        ctx.closePath();
+    };
 
     const toGraphCoordinates = (event) => {
         const rect = canvas.getBoundingClientRect();
@@ -71,11 +92,12 @@ export function createGraph(rootElement) {
     };
 
     const snapTimelineLayout = () => {
-        if (nodes.length === 0) {
+        const commitNodes = nodes.filter((node) => node.type === "commit");
+        if (commitNodes.length === 0) {
             return;
         }
 
-        const ordered = [...nodes].sort((a, b) => {
+        const ordered = [...commitNodes].sort((a, b) => {
             const aTime = getCommitTimestamp(a.commit);
             const bTime = getCommitTimestamp(b.commit);
             if (aTime === bTime) {
@@ -109,7 +131,7 @@ export function createGraph(rootElement) {
         const span = Math.max(1, ordered.length - 1);
         const computeDepth = (() => {
             const memo = new Map();
-            const parentsByHash = new Map(nodes.map((node) => [node.hash, node.commit?.parents ?? []]));
+            const parentsByHash = new Map(commitNodes.map((node) => [node.hash, node.commit?.parents ?? []]));
             const dfs = (hash, depth) => {
                 if (!parentsByHash.has(hash)) {
                     return depth;
@@ -157,16 +179,25 @@ export function createGraph(rootElement) {
     };
 
     const centerTimelineOnRightmost = () => {
-        if (!zoom || nodes.length === 0) {
+        if (!zoom) {
             return;
         }
-        let rightmost = nodes[0];
-        for (const node of nodes) {
-            if (node.x > rightmost.x) {
-                rightmost = node;
+        const commitNodes = nodes.filter((node) => node.type === "commit");
+        if (commitNodes.length === 0) {
+            return;
+        }
+        let selected = commitNodes[0];
+        let bestTime = getCommitTimestamp(selected.commit);
+        for (const node of commitNodes) {
+            const time = getCommitTimestamp(node.commit);
+            if (time > bestTime) {
+                bestTime = time;
+                selected = node;
+            } else if (time === bestTime && node.x > selected.x) {
+                selected = node;
             }
         }
-        d3.select(canvas).call(zoom.translateTo, rightmost.x, rightmost.y);
+        d3.select(canvas).call(zoom.translateTo, selected.x, selected.y);
     };
 
     const setLayoutMode = (mode, { force = false } = {}) => {
@@ -421,27 +452,51 @@ export function createGraph(rootElement) {
             }
         }
 
+        for (const [name, hash] of Object.entries(delta.addedBranches ?? {})) {
+            if (name && hash) {
+                branches.set(name, hash);
+            }
+        }
+        for (const [name, hash] of Object.entries(delta.amendedBranches ?? {})) {
+            if (name && hash) {
+                branches.set(name, hash);
+            }
+        }
+        for (const name of Object.keys(delta.deletedBranches ?? {})) {
+            branches.delete(name);
+        }
+
         updateGraph();
     }
 
     function updateGraph() {
-        const existingNodes = new Map(nodes.map((node) => [node.hash, node]));
-        const nextNodes = [];
-
-        for (const commit of commits.values()) {
-            const node = existingNodes.get(commit.hash) ?? createNode(commit.hash);
-            node.commit = commit;
-            nextNodes.push(node);
+        const existingCommitNodes = new Map();
+        const existingBranchNodes = new Map();
+        for (const node of nodes) {
+            if (node.type === "branch" && node.branch) {
+                existingBranchNodes.set(node.branch, node);
+            } else if (node.type === "commit" && node.hash) {
+                existingCommitNodes.set(node.hash, node);
+            }
         }
 
-        const hashes = new Set(nextNodes.map((node) => node.hash));
+        const nextCommitNodes = [];
+        for (const commit of commits.values()) {
+            const node = existingCommitNodes.get(commit.hash) ?? createCommitNode(commit.hash);
+            node.type = "commit";
+            node.hash = commit.hash;
+            node.commit = commit;
+            nextCommitNodes.push(node);
+        }
+
+        const commitHashes = new Set(nextCommitNodes.map((node) => node.hash));
         const nextLinks = [];
         for (const commit of commits.values()) {
             if (!commit?.hash) {
                 continue;
             }
             for (const parentHash of commit.parents ?? []) {
-                if (!hashes.has(parentHash)) {
+                if (!commitHashes.has(parentHash)) {
                     continue;
                 }
                 nextLinks.push({
@@ -451,7 +506,47 @@ export function createGraph(rootElement) {
             }
         }
 
-        nodes.splice(0, nodes.length, ...nextNodes);
+        const commitNodeByHash = new Map(nextCommitNodes.map((node) => [node.hash, node]));
+        const nextBranchNodes = [];
+        for (const [branchName, targetHash] of branches.entries()) {
+            const targetNode = commitNodeByHash.get(targetHash);
+            if (!targetNode) {
+                continue;
+            }
+
+            let branchNode = existingBranchNodes.get(branchName);
+            const isNewNode = !branchNode;
+            if (!branchNode) {
+                branchNode = createBranchNode(branchName, targetNode);
+            }
+
+            if (branchNode.targetHash !== targetHash) {
+                branchNode.x = targetNode.x + (Math.random() - 0.5) * 12;
+                branchNode.y = targetNode.y - BRANCH_NODE_OFFSET_Y + (Math.random() - 0.5) * 12;
+                branchNode.vx = 0;
+                branchNode.vy = 0;
+            }
+
+            if (isNewNode) {
+                branchNode.x = (targetNode.x ?? 0) + (Math.random() - 0.5) * 20;
+                branchNode.y = (targetNode.y ?? 0) - BRANCH_NODE_OFFSET_Y + (Math.random() - 0.5) * 20;
+                branchNode.vx = 0;
+                branchNode.vy = 0;
+            }
+
+            branchNode.type = "branch";
+            branchNode.branch = branchName;
+            branchNode.targetHash = targetHash;
+
+            nextBranchNodes.push(branchNode);
+            nextLinks.push({
+                source: branchNode,
+                target: targetNode,
+                kind: "branch",
+            });
+        }
+
+        nodes.splice(0, nodes.length, ...nextCommitNodes, ...nextBranchNodes);
         links.splice(0, links.length, ...nextLinks);
 
         if (dragState && !nodes.includes(dragState.node)) {
@@ -470,7 +565,7 @@ export function createGraph(rootElement) {
         }
     }
 
-    function createNode(hash) {
+    function createCommitNode(hash) {
         const centerX = (viewportWidth || canvas.width) / 2;
         const centerY = (viewportHeight || canvas.height) / 2;
         const maxRadius = Math.min(viewportWidth || canvas.width, viewportHeight || canvas.height) * 0.18;
@@ -479,9 +574,26 @@ export function createGraph(rootElement) {
         const jitter = () => (Math.random() - 0.5) * 35;
 
         return {
+            type: "commit",
             hash,
             x: centerX + Math.cos(angle) * radius + jitter(),
             y: centerY + Math.sin(angle) * radius + jitter(),
+            vx: 0,
+            vy: 0,
+        };
+    }
+
+    function createBranchNode(branchName, targetNode) {
+        const baseX = targetNode?.x ?? (viewportWidth || canvas.width) / 2;
+        const baseY = targetNode?.y ?? (viewportHeight || canvas.height) / 2;
+        const jitter = () => (Math.random() - 0.5) * 20;
+
+        return {
+            type: "branch",
+            branch: branchName,
+            targetHash: targetNode?.hash ?? null,
+            x: baseX + jitter(),
+            y: baseY - BRANCH_NODE_OFFSET_Y + jitter(),
             vx: 0,
             vy: 0,
         };
@@ -497,7 +609,6 @@ export function createGraph(rootElement) {
         context.translate(zoomTransform.x, zoomTransform.y);
         context.scale(zoomTransform.k, zoomTransform.k);
 
-        context.strokeStyle = palette.link;
         context.lineWidth = LINK_THICKNESS;
         for (const link of links) {
             const source = typeof link.source === "object" ? link.source : nodes.find((node) => node.hash === link.source);
@@ -518,8 +629,9 @@ export function createGraph(rootElement) {
                 continue;
             }
 
-            const arrowBaseRatio = Math.max((distance - NODE_RADIUS - ARROW_LENGTH) / distance, 0);
-            const arrowTipRatio = Math.max((distance - NODE_RADIUS) / distance, 0);
+            const targetRadius = target.type === "branch" ? BRANCH_NODE_RADIUS : NODE_RADIUS;
+            const arrowBaseRatio = Math.max((distance - targetRadius - ARROW_LENGTH) / distance, 0);
+            const arrowTipRatio = Math.max((distance - targetRadius) / distance, 0);
 
             const shaftEndX = startX + dx * arrowBaseRatio;
             const shaftEndY = startY + dy * arrowBaseRatio;
@@ -527,6 +639,9 @@ export function createGraph(rootElement) {
             const arrowTipY = startY + dy * arrowTipRatio;
 
             const angle = Math.atan2(dy, dx);
+
+            const linkColor = link.kind === "branch" ? palette.branchLink : palette.link;
+            context.strokeStyle = linkColor;
 
             context.beginPath();
             context.moveTo(startX, startY);
@@ -542,13 +657,17 @@ export function createGraph(rootElement) {
             context.lineTo(-ARROW_LENGTH, ARROW_WIDTH / 2);
             context.lineTo(-ARROW_LENGTH, -ARROW_WIDTH / 2);
             context.closePath();
-            context.fillStyle = palette.link;
+            context.fillStyle = linkColor;
             context.fill();
             context.restore();
         }
 
-        context.fillStyle = palette.node;
         for (const node of nodes) {
+            if (node.type !== "commit") {
+                continue;
+            }
+
+            context.fillStyle = palette.node;
             context.beginPath();
             context.arc(node.x, node.y, NODE_RADIUS, 0, Math.PI * 2);
             context.fill();
@@ -578,6 +697,37 @@ export function createGraph(rootElement) {
 
                 context.restore();
             }
+        }
+
+        for (const node of nodes) {
+            if (node.type !== "branch") {
+                continue;
+            }
+
+            const text = node.branch ?? "";
+
+            context.save();
+            context.font = LABEL_FONT;
+            context.textBaseline = "middle";
+            context.textAlign = "center";
+
+            const textMetrics = context.measureText(text);
+            const textHeight = textMetrics.actualBoundingBoxAscent ?? 9;
+            const width = textMetrics.width + BRANCH_NODE_PADDING_X * 2;
+            const height = textHeight + BRANCH_NODE_PADDING_Y * 2;
+            const rectX = node.x - width / 2;
+            const rectY = node.y - height / 2;
+
+            drawRoundedRect(context, rectX, rectY, width, height, BRANCH_NODE_CORNER_RADIUS);
+            context.fillStyle = palette.branchNode;
+            context.fill();
+            context.lineWidth = 1.5;
+            context.strokeStyle = palette.branchNodeBorder;
+            context.stroke();
+
+            context.fillStyle = palette.branchLabelText;
+            context.fillText(text, node.x, node.y);
+            context.restore();
         }
 
         context.restore();
@@ -637,6 +787,10 @@ function buildPalette(element) {
         link: read("--link-color", "#afb8c1"),
         labelText: read("--label-text-color", "#24292f"),
         labelHalo: read("--label-halo-color", "rgba(246, 248, 250, 0.9)"),
+        branchNode: read("--branch-node-color", "#6f42c1"),
+        branchNodeBorder: read("--branch-node-border-color", "#59339d"),
+        branchLabelText: read("--branch-label-text-color", "#ffffff"),
+        branchLink: read("--branch-link-color", "#6f42c1"),
     };
 }
 

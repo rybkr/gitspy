@@ -79,6 +79,17 @@ func (r *Repository) Commits() map[Hash]*Commit {
 	return result
 }
 
+// Branches returns a map of all branch names to Commit hashes.
+func (r *Repository) Branches() map[string]Hash {
+    result := make(map[string]Hash)
+    for ref, hash := range r.refs {
+        if strings.HasPrefix(ref, "refs/heads/") {
+            result[strings.TrimPrefix(ref, "refs/heads/")] = hash
+        }
+    }
+    return result
+}
+
 // Diff returns the difference between this repository and another,
 // represented as a RepositoryDelta struct.
 // It treats r as the new repository and old as the old repository.
@@ -96,6 +107,20 @@ func (r *Repository) Diff(old *Repository) *RepositoryDelta {
 			delta.DeletedCommits = append(delta.DeletedCommits, commit)
 		}
 	}
+
+    newBranches, oldBranches := r.Branches(), old.Branches()
+    for branch, hash := range newBranches {
+        if oldHash, found := oldBranches[branch]; !found {
+            delta.AddedBranches[branch] = hash
+        } else if hash != oldHash {
+            delta.AmendedBranches[branch] = hash
+        }
+    }
+    for branch, hash := range oldBranches {
+        if _, found := newBranches[branch]; !found {
+            delta.DeletedBranches[branch] = hash
+        }
+    }
 
 	return delta
 }
