@@ -173,9 +173,6 @@ export function createGraph(rootElement) {
             node.vx = 0;
             node.vy = 0;
         });
-
-        simulation.alpha(2.0).restart();
-        simulation.alphaTarget(0);
     };
 
     const centerTimelineOnRightmost = () => {
@@ -481,15 +478,20 @@ export function createGraph(rootElement) {
         }
 
         const nextCommitNodes = [];
+        let commitStructureChanged = existingCommitNodes.size !== commits.size;
         for (const commit of commits.values()) {
             const node = existingCommitNodes.get(commit.hash) ?? createCommitNode(commit.hash);
             node.type = "commit";
             node.hash = commit.hash;
             node.commit = commit;
             nextCommitNodes.push(node);
+            if (!existingCommitNodes.has(commit.hash)) {
+                commitStructureChanged = true;
+            }
         }
 
         const commitHashes = new Set(nextCommitNodes.map((node) => node.hash));
+        const previousLinkCount = links.length;
         const nextLinks = [];
         for (const commit of commits.values()) {
             if (!commit?.hash) {
@@ -508,6 +510,7 @@ export function createGraph(rootElement) {
 
         const commitNodeByHash = new Map(nextCommitNodes.map((node) => [node.hash, node]));
         const nextBranchNodes = [];
+        let branchStructureChanged = existingBranchNodes.size !== branches.size;
         for (const [branchName, targetHash] of branches.entries()) {
             const targetNode = commitNodeByHash.get(targetHash);
             if (!targetNode) {
@@ -525,6 +528,7 @@ export function createGraph(rootElement) {
                 branchNode.y = targetNode.y - BRANCH_NODE_OFFSET_Y + (Math.random() - 0.5) * 12;
                 branchNode.vx = 0;
                 branchNode.vy = 0;
+                branchStructureChanged = true;
             }
 
             if (isNewNode) {
@@ -532,6 +536,7 @@ export function createGraph(rootElement) {
                 branchNode.y = (targetNode.y ?? 0) - BRANCH_NODE_OFFSET_Y + (Math.random() - 0.5) * 20;
                 branchNode.vx = 0;
                 branchNode.vy = 0;
+                branchStructureChanged = true;
             }
 
             branchNode.type = "branch";
@@ -555,14 +560,21 @@ export function createGraph(rootElement) {
 
         simulation.nodes(nodes);
         simulation.force("link").links(links);
+
+        const linkStructureChanged = previousLinkCount !== nextLinks.length;
+        const shouldBoostAlpha = commitStructureChanged || branchStructureChanged || linkStructureChanged;
+
         if (layoutMode === "timeline") {
             snapTimelineLayout();
             autoCenterTimeline = true;
             centerTimelineOnRightmost();
-        } else {
-            simulation.alpha(1.0).restart();
-            simulation.alphaTarget(0);
         }
+
+        const currentAlpha = simulation.alpha();
+        const desiredAlpha = shouldBoostAlpha ? 0.28 : 0.08;
+        const nextAlpha = Math.max(currentAlpha, desiredAlpha);
+        simulation.alpha(nextAlpha).restart();
+        simulation.alphaTarget(0);
     }
 
     function createCommitNode(hash) {
