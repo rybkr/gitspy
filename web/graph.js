@@ -36,7 +36,7 @@ export function createGraph(rootElement) {
     let dragState = null;
     let isDraggingNode = false;
     const pointerHandlers = {};
-    let layoutMode = "organic";
+    let layoutMode = "timeline";
     let zoom;
     let autoCenterTimeline = false;
 
@@ -44,23 +44,6 @@ export function createGraph(rootElement) {
     let viewportHeight = 0;
 
     canvas.style.cursor = "default";
-
-    const controls = document.createElement("div");
-    controls.className = "graph-controls";
-
-    const organicButton = document.createElement("button");
-    organicButton.type = "button";
-    organicButton.textContent = "Organic layout";
-    organicButton.classList.add("is-active");
-    organicButton.setAttribute("aria-pressed", "true");
-
-    const timelineButton = document.createElement("button");
-    timelineButton.type = "button";
-    timelineButton.textContent = "Timeline layout";
-    timelineButton.setAttribute("aria-pressed", "false");
-
-    controls.append(organicButton, timelineButton);
-    rootElement.appendChild(controls);
 
     const toGraphCoordinates = (event) => {
         const rect = canvas.getBoundingClientRect();
@@ -186,17 +169,12 @@ export function createGraph(rootElement) {
         d3.select(canvas).call(zoom.translateTo, rightmost.x, rightmost.y);
     };
 
-    const setLayoutMode = (mode) => {
-        if (layoutMode === mode) {
+    const setLayoutMode = (mode, { force = false } = {}) => {
+        if (!force && layoutMode === mode) {
             return;
         }
 
         layoutMode = mode;
-        organicButton.classList.toggle("is-active", mode === "organic");
-        timelineButton.classList.toggle("is-active", mode === "timeline");
-        organicButton.setAttribute("aria-pressed", mode === "organic" ? "true" : "false");
-        timelineButton.setAttribute("aria-pressed", mode === "timeline" ? "true" : "false");
-
         releaseDrag();
 
         if (layoutMode === "timeline") {
@@ -424,12 +402,8 @@ export function createGraph(rootElement) {
     canvas.addEventListener("pointerup", pointerHandlers.up);
     canvas.addEventListener("pointercancel", pointerHandlers.cancel);
 
-    const handleOrganicClick = () => setLayoutMode("organic");
-    const handleTimelineClick = () => setLayoutMode("timeline");
-
-    organicButton.addEventListener("click", handleOrganicClick);
-    timelineButton.addEventListener("click", handleTimelineClick);
     updateHoverCursor();
+    setLayoutMode("timeline", { force: true });
 
     function applyDelta(delta) {
         if (!delta) {
@@ -629,9 +603,6 @@ export function createGraph(rootElement) {
         canvas.removeEventListener("pointermove", pointerHandlers.move);
         canvas.removeEventListener("pointerup", pointerHandlers.up);
         canvas.removeEventListener("pointercancel", pointerHandlers.cancel);
-        organicButton.removeEventListener("click", handleOrganicClick);
-        timelineButton.removeEventListener("click", handleTimelineClick);
-        controls.remove();
     }
 
     return {
