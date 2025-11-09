@@ -65,12 +65,12 @@ func StrToObjectType(s string) ObjectType {
 
 // Commit represents a Git commit object with its metadata and relationships.
 type Commit struct {
-	ID        Hash
-	Tree      Hash
-	Parents   []Hash
-	Author    Signature
-	Committer Signature
-	Message   string
+	ID        Hash      `json:"hash"`
+	Tree      Hash      `json:"tree"`
+	Parents   []Hash    `json:"parents"`
+	Author    Signature `json:"author"`
+	Committer Signature `json:"committer"`
+	Message   string    `json:"message"`
 }
 
 // Type returns the object type for a Commit.
@@ -80,12 +80,12 @@ func (c *Commit) Type() ObjectType {
 
 // Tag represents an annotated Git tag with metadata and a message.
 type Tag struct {
-	ID      Hash
-	Object  Hash
-	ObjType ObjectType
-	Name    string
-	Tagger  Signature
-	Message string
+	ID      Hash       `json:"hash"`
+	Object  Hash       `json:"object"`
+	ObjType ObjectType `json:"objectType"`
+	Name    string     `json:"name"`
+	Tagger  Signature  `json:"tagger"`
+	Message string     `json:"message"`
 }
 
 // Type returns the object type for a Tag.
@@ -95,9 +95,9 @@ func (t *Tag) Type() ObjectType {
 
 // Signature represents a Git author or committer signature with name, email, and timestamp.
 type Signature struct {
-	Name  string
-	Email string
-	When  time.Time
+	Name  string    `json:"name"`
+	Email string    `json:"email"`
+	When  time.Time `json:"when"`
 }
 
 // NewSignature parses a signature line in the format "Name <email> timestamp" and returns a Signature struct.
@@ -153,16 +153,16 @@ func (p *PackIndex) PackFile() string {
 // RepositoryDelta represents the difference between two repositories in a digestable format.
 // This structure gets sent to the front end during live updates.
 type RepositoryDelta struct {
-	AddedCommits   []*Commit
-	DeletedCommits []*Commit
+	AddedCommits   []*Commit `json:"addedCommits"`
+	DeletedCommits []*Commit `json:"deletedCommits"`
 }
 
 // NewRepositoryDelta returns a new RepositoryDelta struct.
 func NewRepositoryDelta() *RepositoryDelta {
-    return &RepositoryDelta{}
+	return &RepositoryDelta{}
 }
 
 // IsEmpty reports whether a RepositoryDelta represents no difference.
 func (d *RepositoryDelta) IsEmpty() bool {
-    return len(d.AddedCommits) == 0 && len(d.DeletedCommits) == 0
+	return len(d.AddedCommits) == 0 && len(d.DeletedCommits) == 0
 }
