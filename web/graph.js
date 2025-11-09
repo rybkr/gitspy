@@ -2,6 +2,7 @@ import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
 
 export function createGraph(rootElement) {
     const canvas = document.createElement("canvas");
+    canvas.factor = window.devicePixelRatio || 1;
     rootElement.appendChild(canvas);
 
     const context = canvas.getContext("2d", { alpha: false });
@@ -14,6 +15,9 @@ export function createGraph(rootElement) {
     let isDraggingNode = false;
     const pointerHandlers = {};
     let layoutMode = "organic";
+
+    let viewportWidth = 0;
+    let viewportHeight = 0;
 
     canvas.style.cursor = "default";
 
@@ -77,16 +81,16 @@ export function createGraph(rootElement) {
         const currentMinX = Math.min(...ordered.map((node) => node.x));
         const currentMaxX = Math.max(...ordered.map((node) => node.x));
 
-        const fallbackWidth = Math.max(320, canvas.width - 320);
-        let rangeStart = Number.isFinite(currentMinX) ? currentMinX : (canvas.width - fallbackWidth) / 2;
+        const fallbackWidth = Math.max(320, viewportWidth - 320);
+        let rangeStart = Number.isFinite(currentMinX) ? currentMinX : (viewportWidth - fallbackWidth) / 2;
         let rangeEnd = Number.isFinite(currentMaxX) ? currentMaxX : rangeStart + fallbackWidth;
 
-        if (!Number.isFinite(rangeStart) || !Number.isFinite(rangeEnd) || rangeEnd - rangeStart < canvas.width * 0.25) {
-            rangeStart = (canvas.width - fallbackWidth) / 2;
+        if (!Number.isFinite(rangeStart) || !Number.isFinite(rangeEnd) || rangeEnd - rangeStart < viewportWidth * 0.25) {
+            rangeStart = (viewportWidth - fallbackWidth) / 2;
             rangeEnd = rangeStart + fallbackWidth;
         }
 
-        const minRange = canvas.width * 0.4;
+        const minRange = viewportWidth * 0.4;
         if (rangeEnd - rangeStart < minRange) {
             const center = (rangeStart + rangeEnd) / 2;
             rangeStart = center - minRange / 2;
@@ -94,7 +98,7 @@ export function createGraph(rootElement) {
         }
 
         rangeStart = Math.max(40, rangeStart);
-        rangeEnd = Math.max(rangeStart + 1, Math.min(canvas.width - 40, rangeEnd));
+        rangeEnd = Math.max(rangeStart + 1, Math.min(viewportWidth - 40, rangeEnd));
 
         const span = Math.max(1, ordered.length - 1);
         const computeDepth = (() => {
@@ -130,10 +134,10 @@ export function createGraph(rootElement) {
         const totalPad = 160;
         const graphDistance = Math.max(1, maxLinkDistance);
         const desiredLength = graphDistance * linkLength * timelineSpacingConstant + totalPad;
-        const start = (canvas.width - desiredLength) / 2;
+        const start = (viewportWidth - desiredLength) / 2;
         const step = span === 0 ? 0 : desiredLength / span;
 
-        const centerY = canvas.height / 2;
+        const centerY = viewportHeight / 2;
 
         ordered.forEach((node, index) => {
             const x = span === 0 ? start + desiredLength / 2 : start + step * index;
@@ -332,13 +336,19 @@ export function createGraph(rootElement) {
 
     function resize() {
         const parent = canvas.parentElement;
-        const width = (parent?.clientWidth ?? window.innerWidth) || window.innerWidth;
-        const height = (parent?.clientHeight ?? window.innerHeight) || window.innerHeight;
+        const cssWidth = (parent?.clientWidth ?? window.innerWidth) || window.innerWidth;
+        const cssHeight = (parent?.clientHeight ?? window.innerHeight) || window.innerHeight;
+        const dpr = window.devicePixelRatio || 1;
 
-        canvas.width = width;
-        canvas.height = height;
+        viewportWidth = cssWidth;
+        viewportHeight = cssHeight;
 
-        simulation.force("center", d3.forceCenter(width / 2, height / 2));
+        canvas.width = Math.round(cssWidth * dpr);
+        canvas.height = Math.round(cssHeight * dpr);
+        canvas.style.width = `${cssWidth}px`;
+        canvas.style.height = `${cssHeight}px`;
+
+        simulation.force("center", d3.forceCenter(viewportWidth / 2, viewportHeight / 2));
         if (layoutMode === "timeline") {
             snapTimelineLayout();
         } else {
@@ -447,9 +457,9 @@ export function createGraph(rootElement) {
     }
 
     function createNode(hash) {
-        const centerX = canvas.width / 2;
-        const centerY = canvas.height / 2;
-        const maxRadius = Math.min(canvas.width, canvas.height) * 0.18;
+        const centerX = (viewportWidth || canvas.width) / 2;
+        const centerY = (viewportHeight || canvas.height) / 2;
+        const maxRadius = Math.min(viewportWidth || canvas.width, viewportHeight || canvas.height) * 0.18;
         const radius = Math.random() * maxRadius;
         const angle = Math.random() * Math.PI * 2;
         const jitter = () => (Math.random() - 0.5) * 35;
@@ -464,16 +474,19 @@ export function createGraph(rootElement) {
     }
 
     function render() {
+        const dpr = window.devicePixelRatio || 1;
         context.save();
-        context.setTransform(1, 0, 0, 1, 0, 0);
+        context.setTransform(dpr, 0, 0, dpr, 0, 0);
         context.fillStyle = palette.background;
-        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.fillRect(0, 0, viewportWidth, viewportHeight);
 
         context.translate(zoomTransform.x, zoomTransform.y);
         context.scale(zoomTransform.k, zoomTransform.k);
 
         context.strokeStyle = palette.link;
-        context.lineWidth = 1;
+        const nodeRadius = 6;
+        const lineThickness = nodeRadius * 0.32;
+        context.lineWidth = lineThickness;
         for (const link of links) {
             const source =
                 typeof link.source === "object" ? link.source : nodes.find((node) => node.hash === link.source);
@@ -482,10 +495,48 @@ export function createGraph(rootElement) {
             if (!source || !target) {
                 continue;
             }
+
+            const startX = source.x;
+            const startY = source.y;
+            const endX = target.x;
+            const endY = target.y;
+
+            const dx = endX - startX;
+            const dy = endY - startY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            if (distance === 0) {
+                continue;
+            }
+
+            const headLength = nodeRadius * 2;
+            const headWidth = nodeRadius * 1.35;
+            const arrowBaseRatio = Math.max((distance - nodeRadius - headLength) / distance, 0);
+            const arrowTipRatio = Math.max((distance - nodeRadius) / distance, 0);
+
+            const shaftEndX = startX + dx * arrowBaseRatio;
+            const shaftEndY = startY + dy * arrowBaseRatio;
+            const arrowTipX = startX + dx * arrowTipRatio;
+            const arrowTipY = startY + dy * arrowTipRatio;
+
+            const angle = Math.atan2(dy, dx);
+
             context.beginPath();
-            context.moveTo(source.x, source.y);
-            context.lineTo(target.x, target.y);
+            context.moveTo(startX, startY);
+            context.lineTo(shaftEndX, shaftEndY);
             context.stroke();
+
+            context.save();
+            context.translate(arrowTipX, arrowTipY);
+            context.rotate(angle);
+
+            context.beginPath();
+            context.moveTo(0, 0);
+            context.lineTo(-headLength, headWidth / 2);
+            context.lineTo(-headLength, -headWidth / 2);
+            context.closePath();
+            context.fillStyle = palette.link;
+            context.fill();
+            context.restore();
         }
 
         context.fillStyle = palette.node;
