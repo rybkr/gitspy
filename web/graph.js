@@ -480,7 +480,10 @@ export function createGraph(rootElement) {
         const nextCommitNodes = [];
         let commitStructureChanged = existingCommitNodes.size !== commits.size;
         for (const commit of commits.values()) {
-            const node = existingCommitNodes.get(commit.hash) ?? createCommitNode(commit.hash);
+            const parentNode = (commit.parents ?? [])
+                .map((parentHash) => existingCommitNodes.get(parentHash))
+                .find((node) => node);
+            const node = existingCommitNodes.get(commit.hash) ?? createCommitNode(commit.hash, parentNode);
             node.type = "commit";
             node.hash = commit.hash;
             node.commit = commit;
@@ -577,13 +580,25 @@ export function createGraph(rootElement) {
         simulation.alphaTarget(0);
     }
 
-    function createCommitNode(hash) {
+    function createCommitNode(hash, anchorNode) {
         const centerX = (viewportWidth || canvas.width) / 2;
         const centerY = (viewportHeight || canvas.height) / 2;
         const maxRadius = Math.min(viewportWidth || canvas.width, viewportHeight || canvas.height) * 0.18;
         const radius = Math.random() * maxRadius;
         const angle = Math.random() * Math.PI * 2;
         const jitter = () => (Math.random() - 0.5) * 35;
+
+        if (anchorNode) {
+            const offsetJitter = () => (Math.random() - 0.5) * 6;
+            return {
+                type: "commit",
+                hash,
+                x: anchorNode.x + offsetJitter(),
+                y: anchorNode.y + offsetJitter(),
+                vx: 0,
+                vy: 0,
+            };
+        }
 
         return {
             type: "commit",
