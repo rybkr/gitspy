@@ -1,544 +1,103 @@
-* {
-    box-sizing: border-box;
-}
-
-html,
-body {
-    height: 100%;
-}
-
 :root {
-    --bg: #ffffff;
-    --fg: #0f172a;
-    --muted: #64748b;
-    --border: #e5e7eb;
-    --panel: #f8fafc;
-    --accent: #3b82f6;
-    --link: #ccd2db;
+    color-scheme: light dark;
+    --bg-color: #f6f8fa;
+    --text-color: #1f2328;
+    --surface-color: #ffffff;
+    --border-color: #d0d7de;
+    --node-color: #0969da;
+    --link-color: #afb8c1;
+    --label-text-color: #24292f;
+    --label-halo-color: rgba(246, 248, 250, 0.92);
 }
 
 @media (prefers-color-scheme: dark) {
     :root {
-        --bg: #0b0f14;
-        --fg: #e5e7eb;
-        --muted: #94a3b8;
-        --border: #1f2937;
-        --panel: #0e131a;
-        --accent: #60a5fa;
-        --link: #51555a;
+        --bg-color: #010409;
+        --text-color: #f0f6fc;
+        --surface-color: #0d1117;
+        --border-color: #30363d;
+        --node-color: #2f81f7;
+        --link-color: #484f58;
+        --label-text-color: #f0f6fc;
+        --label-halo-color: rgba(1, 4, 9, 0.85);
     }
+}
 
-    #graph svg .node circle {
-        filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4));
-    }
-
-    #graph svg .node.selected circle {
-        filter: drop-shadow(0 0 8px rgba(96, 165, 250, 0.6));
-    }
-
-    #graph svg .branch-node .branch-circle {
-        stroke: rgba(255, 255, 255, 0.9);
-        stroke-width: 3;
-        filter: drop-shadow(0 2px 4px rgba(96, 165, 250, 0.4));
-    }
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
 }
 
 body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--fg);
-    font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
-}
-
-.app {}
-
-#main {
-    display: grid;
-    grid-template-columns: var(--sidebar-width, 260px) 1fr;
-    min-height: 100dvh;
-    transition: grid-template-columns 0.2s ease;
-}
-
-#main.collapsed {
-    grid-template-columns: 0 1fr;
-}
-
-#sidebar {
-    position: relative;
-    background: var(--panel);
-    border-right: 1px solid var(--border);
-    overflow: hidden;
-    width: var(--sidebar-width, 260px);
-    transition: width 0.2s ease, opacity 0.2s ease;
-}
-
-#sidebar.collapsed {
-    width: 0;
-    opacity: 0;
-    pointer-events: none;
-}
-
-.sidebar-toggle {
-    position: absolute;
-    top: 12px;
-    right: 12px;
-    z-index: 10;
-    width: 28px;
-    height: 28px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--bg-color);
+    color: var(--text-color);
+    min-height: 100vh;
+    display: flex;
     padding: 0;
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    background: var(--bg);
-    color: var(--fg);
-    font-size: 14px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background 0.15s ease;
 }
 
-.sidebar-toggle:hover {
-    background: var(--border);
-}
-
-.sidebar-resize {
-    position: absolute;
-    top: 0;
-    right: 0;
-    width: 4px;
-    height: 100%;
-    cursor: col-resize;
-    z-index: 5;
-}
-
-.sidebar-resize:hover {
-    background: var(--accent);
-    opacity: 0.5;
-}
-
-.sidebar-resize:active {
-    background: var(--accent);
-    opacity: 0.8;
-}
-
-/* Disable transitions and improve UX while dragging */
-body.resizing {
-    cursor: col-resize;
-    user-select: none;
-}
-
-body.resizing #main {
-    transition: none !important;
-}
-
-body.resizing #sidebar {
-    transition: none !important;
-}
-
-.sidebar-restore {
-    position: absolute;
-    top: 12px;
-    left: 12px;
-    z-index: 10;
-    width: 28px;
-    height: 28px;
-    padding: 0;
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    background: var(--bg);
-    color: var(--fg);
-    font-size: 14px;
-    cursor: pointer;
-    display: none;
-    align-items: center;
-    justify-content: center;
-    transition: background 0.15s ease;
-}
-
-#main.collapsed .sidebar-restore {
-    display: flex;
-}
-
-.sidebar-restore:hover {
-    background: var(--border);
-}
-
-#sidebar .repo {
-    padding: 16px;
-    border-bottom: 1px solid var(--border);
-}
-
-#sidebar .repo-name {
-    font-size: 21px;
-    font-weight: 600;
-    line-height: 1.2;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-
-#sidebar .repo-path {
-    margin-top: 2px;
-    color: var(--muted);
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 14px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-#sidebar .status {
-    padding: 16px;
-    border-bottom: 1px solid var(--border);
-}
-
-#sidebar .status-header {
-    font-weight: 600;
-    margin-bottom: 12px;
-}
-
-#sidebar .status-body {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 12px;
-    line-height: 1.6;
-    max-height: 300px;
-    overflow-y: auto;
-}
-
-#sidebar .status-entry {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 2px;
-    line-height: 1.4;
-}
-
-#sidebar .status-flags {
-    display: inline-block;
-    width: 24px;
-    text-align: center;
-    font-weight: 600;
-}
-
-#sidebar .status-char {
-    display: inline-block;
-    width: 12px;
-}
-
-#sidebar .status-char.index.status-a {
-    color: #22c55e;
-}
-
-#sidebar .status-char.index.status-m {
-    color: #f59e0b;
-}
-
-#sidebar .status-char.index.status-d {
-    color: #ef4444;
-}
-
-#sidebar .status-char.index.status-r {
-    color: #3b82f6;
-}
-
-#sidebar .status-char.worktree.status-m {
-    color: #f59e0b;
-}
-
-#sidebar .status-char.worktree.status-d {
-    color: #ef4444;
-}
-
-#sidebar .status-char.worktree.status-untracked {
-    color: #ef4444;
-}
-
-@media (prefers-color-scheme: dark) {
-    #sidebar .status-char.index.status-a {
-        color: #4ade80;
-    }
-
-    #sidebar .status-char.index.status-m {
-        color: #fbbf24;
-    }
-
-    #sidebar .status-char.index.status-d {
-        color: #f87171;
-    }
-
-    #sidebar .status-char.index.status-r {
-        color: #60a5fa;
-    }
-
-    #sidebar .status-char.worktree.status-m {
-        color: #fbbf24;
-    }
-
-    #sidebar .status-char.worktree.status-d {
-        color: #f87171;
-    }
-
-    #sidebar .status-char.worktree.status-untracked {
-        color: #f87171;
-    }
-}
-
-#sidebar .status-path {
+#root {
     flex: 1;
+    background: var(--surface-color);
+    border: none;
+    border-radius: 0;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-#graph {
+    box-shadow: none;
     position: relative;
-    min-width: 0;
 }
 
-#graph svg {
+canvas {
     width: 100%;
     height: 100%;
     display: block;
+    background: var(--surface-color);
+    touch-action: none;
 }
 
-#graph svg .node {
-    cursor: pointer;
-}
-
-#graph svg .link {
-    stroke: var(--link);
-    stroke-width: 1.5;
-    fill: none;
-    opacity: 0.6;
-    transition: opacity 0.2s ease, stroke-width 0.2s ease;
-}
-
-#graph svg .link:hover {
-    opacity: 1;
-    stroke-width: 2;
-}
-
-#graph svg .node {
-    cursor: pointer;
-}
-
-#graph svg .node circle {
-    fill: var(--muted);
-    stroke: var(--bg);
-    stroke-width: 2;
-    transition: fill 0.2s ease, stroke-width 0.2s ease, filter 0.2s ease, transform 0.2s ease;
-    cursor: pointer;
-    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
-    transform-origin: center;
-}
-
-
-
-#graph svg .node.selected circle {
-    stroke: var(--accent);
-    stroke-width: 4;
-    fill: var(--accent);
-    filter: drop-shadow(0 0 10px rgba(59, 130, 246, 0.6));
-}
-
-#graph svg .node:hover circle {
-    stroke-width: 3;
-    filter: drop-shadow(0 0 6px rgba(59, 130, 246, 0.4));
-}
-
-
-
-#graph svg .node-label {
-    font-size: 10px;
-    fill: var(--muted);
-    stroke: var(--bg);
-    stroke-width: 4px;
-    stroke-linejoin: round;
-    paint-order: stroke fill;
-    pointer-events: none;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-weight: 500;
-    transition: fill 0.2s ease, font-size 0.2s ease;
-}
-
-#graph svg .node.selected .node-label {
-    fill: var(--accent);
-    font-weight: 600;
-    font-size: 11px;
-}
-
-#graph svg .branch-nodes {
-    pointer-events: none;
-}
-
-#graph svg .branch-node {
-    pointer-events: none;
-}
-
-#graph svg .branch-node .branch-circle {
-    fill: var(--accent);
-    stroke: var(--bg);
-    stroke-width: 3;
-    filter: drop-shadow(0 2px 4px rgba(59, 130, 246, 0.3));
-    transition: fill 0.2s ease, stroke-width 0.2s ease, filter 0.2s ease;
-}
-
-#graph svg .branch-node .branch-name {
-    font-size: 11px;
-    font-weight: 600;
-    fill: var(--accent);
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    stroke: var(--bg);
-    stroke-width: 3px;
-    stroke-linejoin: round;
-    paint-order: stroke fill;
-    pointer-events: none;
-}
-
-#graph svg .link.branch-link {
-    stroke: var(--accent);
-    stroke-width: 2;
-    stroke-opacity: 0.6;
-    stroke-dasharray: 4, 2;
-}
-
-.popup-tooltip {
-    position: fixed;
-    display: none;
-    z-index: 1000;
-    pointer-events: none;
-    opacity: 0;
-    transform: translateY(-4px) scale(0.96);
-    transition: opacity 0.2s ease, transform 0.2s ease;
-}
-
-.popup-tooltip.visible {
-    display: block;
-    opacity: 1;
-    transform: translateY(0) scale(1);
-}
-
-.popup-content {
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 16px;
-    max-width: 380px;
-    min-width: 280px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(0, 0, 0, 0.05);
-    pointer-events: auto;
-    overflow: hidden;
-    backdrop-filter: blur(10px);
-}
-
-.popup-header {
-    margin-bottom: 12px;
-    word-wrap: break-word;
-    overflow-wrap: break-word;
-}
-
-.popup-hash {
-    font-size: 11px;
-    font-weight: 500;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    margin-bottom: 8px;
-    word-wrap: break-word;
-    overflow-wrap: break-word;
-    overflow: hidden;
-    letter-spacing: 0.02em;
-    color: var(--muted);
-    opacity: 0.8;
-}
-
-.popup-branches {
-    font-size: 12px;
-    color: var(--accent);
-    font-weight: 600;
-    word-wrap: break-word;
-    overflow-wrap: break-word;
-    overflow: hidden;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 4px 8px;
-    background: rgba(59, 130, 246, 0.1);
-    border-radius: 6px;
-    margin-top: 4px;
-}
-
-.popup-message {
-    font-size: 16px;
-    line-height: 1.7;
-    margin-bottom: 12px;
-    white-space: pre-wrap;
-    word-wrap: break-word;
-    overflow-wrap: break-word;
-    max-height: 200px;
-    overflow-y: auto;
-    overflow-x: hidden;
-    color: var(--fg);
-    font-weight: 500;
-}
-
-.popup-message::-webkit-scrollbar {
-    width: 6px;
-}
-
-.popup-message::-webkit-scrollbar-track {
-    background: transparent;
-}
-
-.popup-message::-webkit-scrollbar-thumb {
-    background: var(--border);
-    border-radius: 3px;
-}
-
-.popup-message::-webkit-scrollbar-thumb:hover {
-    background: var(--muted);
-}
-
-.popup-meta {
-    font-size: 12px;
-    color: var(--muted);
-    line-height: 1.5;
-    word-wrap: break-word;
-    overflow-wrap: break-word;
+.graph-controls {
+    position: absolute;
+    top: 16px;
+    right: 16px;
     display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
-.popup-author {
-    word-wrap: break-word;
-    overflow-wrap: break-word;
-    overflow: hidden;
-    font-weight: 600;
-    font-size: 13px;
-    color: var(--fg);
-    margin-bottom: 2px;
-}
-
-.popup-date {
-    font-size: 11px;
-    word-wrap: break-word;
-    overflow-wrap: break-word;
-    overflow: hidden;
-    opacity: 0.8;
+    gap: 8px;
+    padding: 4px 6px;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.08);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border-color);
+    z-index: 10;
 }
 
 @media (prefers-color-scheme: dark) {
-    .popup-content {
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1);
-    }
-
-    .popup-branches {
-        background: rgba(96, 165, 250, 0.15);
+    .graph-controls {
+        background: rgba(1, 4, 9, 0.6);
     }
 }
 
-header,
-footer {
-    min-height: 0;
+.graph-controls button {
+    border: 1px solid transparent;
+    border-radius: 999px;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    background: transparent;
+    color: var(--text-color);
+    cursor: pointer;
+    transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.graph-controls button:hover {
+    background: rgba(148, 163, 184, 0.2);
+}
+
+.graph-controls button.is-active {
+    background: var(--node-color);
+    color: #ffffff;
+}
+
+.graph-controls button:focus-visible {
+    outline: 2px solid var(--node-color);
+    outline-offset: 2px;
 }

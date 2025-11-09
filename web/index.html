@@ -1,48 +1,16 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Git Vista</title>
-    <meta name="color-scheme" content="light dark">
-    <link rel="stylesheet" href="./styles.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitVista</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/app.js" type="module" defer></script>
 </head>
 
 <body>
-    <main id="main">
-        <aside id="sidebar">
-            <button id="sidebarToggle" class="sidebar-toggle" title="Toggle sidebar">☰</button>
-            <div class="repo">
-                <div class="repo-name" id="repoName">Repository</div>
-                <div class="repo-path" id="repoPath" title="/path/to/repo">/path/to/repo</div>
-            </div>
-            <div class="status">
-                <div class="status-header">Status</div>
-                <div class="status-body" id="statusBody"></div>
-            </div>
-            <div id="sidebarResize" class="sidebar-resize"></div>
-        </aside>
-        <section id="graph">
-            <button id="sidebarRestore" class="sidebar-restore" title="Restore sidebar">☰</button>
-            <svg id="graphSvg"></svg>
-        </section>
-    </main>
-    <div id="commitPopup" class="popup-tooltip">
-        <div class="popup-content">
-            <div class="popup-header">
-                <div class="popup-hash" id="popupHash"></div>
-                <div class="popup-branches" id="popupBranches"></div>
-            </div>
-            <div class="popup-message" id="popupMessage"></div>
-            <div class="popup-meta">
-                <div class="popup-author" id="popupAuthor"></div>
-                <div class="popup-date" id="popupDate"></div>
-            </div>
-        </div>
-    </div>
-    <script src="https://d3js.org/d3.v7.min.js"></script>
-    <script type="module" src="./app.js"></script>
+    <div id="root"></div>
 </body>
 
 </html>
