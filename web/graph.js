@@ -1,4 +1,26 @@
-import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
+import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7.9.0/+esm";
+
+const NODE_RADIUS = 6;
+const LINK_DISTANCE = 50;
+const LINK_STRENGTH = 0.4;
+const CHARGE_STRENGTH = -110;
+const COLLISION_RADIUS = 14;
+const LINK_THICKNESS = NODE_RADIUS * 0.32;
+const ARROW_LENGTH = NODE_RADIUS * 2;
+const ARROW_WIDTH = NODE_RADIUS * 1.35;
+const HOVER_RADIUS = 18;
+const DRAG_THRESHOLD = 3;
+const TIMELINE_SPACING = 0.95;
+const TIMELINE_PADDING = 160;
+const TIMELINE_FALLBACK_GAP = 320;
+const TIMELINE_MIN_RANGE_FRACTION = 0.4;
+const TIMELINE_MARGIN = 40;
+const TIMELINE_AUTO_CENTER_ALPHA = 0.12;
+const LABEL_FONT =
+    "12px ui-monospace, SFMono-Regular, SFMono, Menlo, Monaco, Consolas, Liberation Mono, Courier New, monospace";
+const LABEL_PADDING = 9;
+const ZOOM_MIN = 0.25;
+const ZOOM_MAX = 4;
 
 export function createGraph(rootElement) {
     const canvas = document.createElement("canvas");
@@ -15,13 +37,14 @@ export function createGraph(rootElement) {
     let isDraggingNode = false;
     const pointerHandlers = {};
     let layoutMode = "organic";
+    let zoom;
+    let autoCenterTimeline = false;
 
     let viewportWidth = 0;
     let viewportHeight = 0;
 
     canvas.style.cursor = "default";
 
-    const timelineSpacingConstant = 0.95;
     const controls = document.createElement("div");
     controls.className = "graph-controls";
 
@@ -81,7 +104,7 @@ export function createGraph(rootElement) {
         const currentMinX = Math.min(...ordered.map((node) => node.x));
         const currentMaxX = Math.max(...ordered.map((node) => node.x));
 
-        const fallbackWidth = Math.max(320, viewportWidth - 320);
+        const fallbackWidth = Math.max(TIMELINE_FALLBACK_GAP, viewportWidth - TIMELINE_FALLBACK_GAP);
         let rangeStart = Number.isFinite(currentMinX) ? currentMinX : (viewportWidth - fallbackWidth) / 2;
         let rangeEnd = Number.isFinite(currentMaxX) ? currentMaxX : rangeStart + fallbackWidth;
 
@@ -90,15 +113,15 @@ export function createGraph(rootElement) {
             rangeEnd = rangeStart + fallbackWidth;
         }
 
-        const minRange = viewportWidth * 0.4;
+        const minRange = viewportWidth * TIMELINE_MIN_RANGE_FRACTION;
         if (rangeEnd - rangeStart < minRange) {
             const center = (rangeStart + rangeEnd) / 2;
             rangeStart = center - minRange / 2;
             rangeEnd = center + minRange / 2;
         }
 
-        rangeStart = Math.max(40, rangeStart);
-        rangeEnd = Math.max(rangeStart + 1, Math.min(viewportWidth - 40, rangeEnd));
+        rangeStart = Math.max(TIMELINE_MARGIN, rangeStart);
+        rangeEnd = Math.max(rangeStart + 1, Math.min(viewportWidth - TIMELINE_MARGIN, rangeEnd));
 
         const span = Math.max(1, ordered.length - 1);
         const computeDepth = (() => {
@@ -130,10 +153,8 @@ export function createGraph(rootElement) {
             maxLinkDistance = Math.max(maxLinkDistance, depth);
         });
 
-        const linkLength = 50;
-        const totalPad = 160;
         const graphDistance = Math.max(1, maxLinkDistance);
-        const desiredLength = graphDistance * linkLength * timelineSpacingConstant + totalPad;
+        const desiredLength = graphDistance * LINK_DISTANCE * TIMELINE_SPACING + TIMELINE_PADDING;
         const start = (viewportWidth - desiredLength) / 2;
         const step = span === 0 ? 0 : desiredLength / span;
 
@@ -152,6 +173,19 @@ export function createGraph(rootElement) {
         simulation.alphaTarget(0);
     };
 
+    const centerTimelineOnRightmost = () => {
+        if (!zoom || nodes.length === 0) {
+            return;
+        }
+        let rightmost = nodes[0];
+        for (const node of nodes) {
+            if (node.x > rightmost.x) {
+                rightmost = node;
+            }
+        }
+        d3.select(canvas).call(zoom.translateTo, rightmost.x, rightmost.y);
+    };
+
     const setLayoutMode = (mode) => {
         if (layoutMode === mode) {
             return;
@@ -167,16 +201,19 @@ export function createGraph(rootElement) {
 
         if (layoutMode === "timeline") {
             snapTimelineLayout();
+            autoCenterTimeline = true;
+            centerTimelineOnRightmost();
         } else {
+            autoCenterTimeline = false;
             simulation.force("timelineX", null);
             simulation.force("timelineY", null);
             const collision = simulation.force("collision");
             if (collision) {
-                collision.radius(14);
+                collision.radius(COLLISION_RADIUS);
             }
             const charge = simulation.force("charge");
             if (charge) {
-                charge.strength(-110);
+                charge.strength(CHARGE_STRENGTH);
             }
             simulation.alpha(1.0).restart();
             simulation.alphaTarget(0);
@@ -194,7 +231,7 @@ export function createGraph(rootElement) {
             return;
         }
         const { x, y } = toGraphCoordinates(event);
-        const hovered = findNearestNode(x, y, 18);
+        const hovered = findNearestNode(x, y, HOVER_RADIUS);
         canvas.style.cursor = hovered ? "grab" : "default";
     };
 
@@ -238,7 +275,7 @@ export function createGraph(rootElement) {
         }
 
         const { x, y } = toGraphCoordinates(event);
-        const targetNode = findNearestNode(x, y, 18);
+        const targetNode = findNearestNode(x, y, HOVER_RADIUS);
 
         if (!targetNode) {
             return;
@@ -285,7 +322,7 @@ export function createGraph(rootElement) {
 
             if (!dragState.moved) {
                 const distance = Math.hypot(x - dragState.startX, y - dragState.startY);
-                if (distance > 3) {
+                if (distance > DRAG_THRESHOLD) {
                     dragState.moved = true;
                     simulation.alphaTarget(1.0).restart();
                 }
@@ -308,29 +345,29 @@ export function createGraph(rootElement) {
     let palette = buildPalette(canvas);
     let removeThemeWatcher = null;
 
-    const zoom = d3
-        .zoom()
+    zoom = d3.zoom()
         .filter((event) => !isDraggingNode || event.type === "wheel")
-        .scaleExtent([0.25, 4])
+        .scaleExtent([ZOOM_MIN, ZOOM_MAX])
         .on("zoom", (event) => {
+            if (layoutMode === "timeline" && event.sourceEvent) {
+                autoCenterTimeline = false;
+            }
             zoomTransform = event.transform;
             render();
         });
 
     d3.select(canvas).call(zoom).on("dblclick.zoom", null);
 
-    const simulation = d3
-        .forceSimulation(nodes)
+    const simulation = d3.forceSimulation(nodes)
         .force(
             "link",
-            d3
-                .forceLink(links)
+            d3.forceLink(links)
                 .id((d) => d.hash)
-                .distance(50)
-                .strength(0.4)
+                .distance(LINK_DISTANCE)
+                .strength(LINK_STRENGTH)
         )
-        .force("charge", d3.forceManyBody().strength(-110))
-        .force("collision", d3.forceCollide().radius(14))
+        .force("charge", d3.forceManyBody().strength(CHARGE_STRENGTH))
+        .force("collision", d3.forceCollide().radius(COLLISION_RADIUS))
         .force("center", d3.forceCenter(0, 0))
         .on("tick", tick);
 
@@ -350,12 +387,11 @@ export function createGraph(rootElement) {
 
         simulation.force("center", d3.forceCenter(viewportWidth / 2, viewportHeight / 2));
         if (layoutMode === "timeline") {
-            snapTimelineLayout();
+            render();
         } else {
             simulation.alpha(0.3).restart();
             simulation.alphaTarget(0);
         }
-        render();
     }
 
     window.addEventListener("resize", resize);
@@ -376,10 +412,12 @@ export function createGraph(rootElement) {
         }
     }
 
-    pointerHandlers.down = (event) => handlePointerDown(event);
-    pointerHandlers.move = (event) => handlePointerMove(event);
-    pointerHandlers.up = (event) => handlePointerUp(event);
-    pointerHandlers.cancel = (event) => handlePointerUp(event);
+    Object.assign(pointerHandlers, {
+        down: handlePointerDown,
+        move: handlePointerMove,
+        up: handlePointerUp,
+        cancel: handlePointerUp,
+    });
 
     canvas.addEventListener("pointerdown", pointerHandlers.down);
     canvas.addEventListener("pointermove", pointerHandlers.move);
@@ -450,6 +488,8 @@ export function createGraph(rootElement) {
         simulation.force("link").links(links);
         if (layoutMode === "timeline") {
             snapTimelineLayout();
+            autoCenterTimeline = true;
+            centerTimelineOnRightmost();
         } else {
             simulation.alpha(1.0).restart();
             simulation.alphaTarget(0);
@@ -484,14 +524,10 @@ export function createGraph(rootElement) {
         context.scale(zoomTransform.k, zoomTransform.k);
 
         context.strokeStyle = palette.link;
-        const nodeRadius = 6;
-        const lineThickness = nodeRadius * 0.32;
-        context.lineWidth = lineThickness;
+        context.lineWidth = LINK_THICKNESS;
         for (const link of links) {
-            const source =
-                typeof link.source === "object" ? link.source : nodes.find((node) => node.hash === link.source);
-            const target =
-                typeof link.target === "object" ? link.target : nodes.find((node) => node.hash === link.target);
+            const source = typeof link.source === "object" ? link.source : nodes.find((node) => node.hash === link.source);
+            const target = typeof link.target === "object" ? link.target : nodes.find((node) => node.hash === link.target);
             if (!source || !target) {
                 continue;
             }
@@ -508,10 +544,8 @@ export function createGraph(rootElement) {
                 continue;
             }
 
-            const headLength = nodeRadius * 2;
-            const headWidth = nodeRadius * 1.35;
-            const arrowBaseRatio = Math.max((distance - nodeRadius - headLength) / distance, 0);
-            const arrowTipRatio = Math.max((distance - nodeRadius) / distance, 0);
+            const arrowBaseRatio = Math.max((distance - NODE_RADIUS - ARROW_LENGTH) / distance, 0);
+            const arrowTipRatio = Math.max((distance - NODE_RADIUS) / distance, 0);
 
             const shaftEndX = startX + dx * arrowBaseRatio;
             const shaftEndY = startY + dy * arrowBaseRatio;
@@ -531,8 +565,8 @@ export function createGraph(rootElement) {
 
             context.beginPath();
             context.moveTo(0, 0);
-            context.lineTo(-headLength, headWidth / 2);
-            context.lineTo(-headLength, -headWidth / 2);
+            context.lineTo(-ARROW_LENGTH, ARROW_WIDTH / 2);
+            context.lineTo(-ARROW_LENGTH, -ARROW_WIDTH / 2);
             context.closePath();
             context.fillStyle = palette.link;
             context.fill();
@@ -542,7 +576,7 @@ export function createGraph(rootElement) {
         context.fillStyle = palette.node;
         for (const node of nodes) {
             context.beginPath();
-            context.arc(node.x, node.y, 6, 0, Math.PI * 2);
+            context.arc(node.x, node.y, NODE_RADIUS, 0, Math.PI * 2);
             context.fill();
 
             if (node.commit?.hash) {
@@ -550,13 +584,13 @@ export function createGraph(rootElement) {
 
                 const text = shortenHash(node.commit.hash);
 
-                context.font = "12px ui-monospace, SFMono-Regular, SFMono, Menlo, Monaco, Consolas, Liberation Mono, Courier New, monospace";
+                context.font = LABEL_FONT;
                 context.textBaseline = "middle";
                 context.textAlign = "center";
 
                 const textMetrics = context.measureText(text);
                 const textHeight = textMetrics.actualBoundingBoxAscent ?? 9;
-                const baselineOffset = textHeight / 2 + 9;
+                const baselineOffset = textHeight / 2 + LABEL_PADDING;
 
                 context.lineWidth = 3;
                 context.lineJoin = "round";
@@ -576,6 +610,12 @@ export function createGraph(rootElement) {
     }
 
     function tick() {
+        if (layoutMode === "timeline" && autoCenterTimeline) {
+            centerTimelineOnRightmost();
+            if (simulation.alpha() < TIMELINE_AUTO_CENTER_ALPHA) {
+                autoCenterTimeline = false;
+            }
+        }
         render();
     }
 
