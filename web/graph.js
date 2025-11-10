@@ -286,6 +286,254 @@ class GraphRenderer {
 	}
 }
 
+class LayoutManager {
+	constructor(simulation, viewportWidth, viewportHeight) {
+		this.simulation = simulation;
+		this.viewportWidth = viewportWidth;
+		this.viewportHeight = viewportHeight;
+		this.mode = "force";
+		this.autoCenter = false;
+	}
+
+	updateViewport(width, height) {
+		this.viewportWidth = width;
+		this.viewportHeight = height;
+		this.simulation.force("center", d3.forceCenter(width / 2, height / 2));
+	}
+
+	setMode(mode) {
+		if (this.mode === mode) {
+			return false;
+		}
+		this.mode = mode;
+
+		if (mode === "timeline") {
+			this.enableTimelineMode();
+		} else {
+			this.enableForceMode();
+		}
+
+		return true;
+	}
+
+	getMode() {
+		return this.mode;
+	}
+
+	enableTimelineMode() {
+		this.simulation.force("timelineX", null);
+		this.simulation.force("timelineY", null);
+
+		const collision = this.simulation.force("collision");
+		if (collision) {
+			collision.radius(COLLISION_RADIUS * 0.5);
+		}
+
+		this.autoCenter = true;
+	}
+
+	enableForceMode() {
+		this.simulation.force("timelineX", null);
+		this.simulation.force("timelineY", null);
+
+		const collision = this.simulation.force("collision");
+		if (collision) {
+			collision.radius(COLLISION_RADIUS);
+		}
+
+		const charge = this.simulation.force("charge");
+		if (charge) {
+			charge.strength(CHARGE_STRENGTH);
+		}
+
+		this.autoCenter = false;
+		this.simulation.alpha(1.0).restart();
+		this.simulation.alphaTarget(0);
+	}
+
+	applyTimelineLayout(nodes) {
+		const commitNodes = nodes.filter((n) => n.type === "commit");
+		if (commitNodes.length === 0) return;
+
+		const ordered = this.sortCommitsByTime(commitNodes);
+		const spacing = this.calculateTimelineSpacing(commitNodes);
+		this.positionNodesHorizontally(ordered, spacing);
+	}
+
+	sortCommitsByTime(nodes) {
+		return [...nodes].sort((a, b) => {
+			const aTime = getCommitTimestamp(a.commit);
+			const bTime = getCommitTimestamp(b.commit);
+			if (aTime === bTime) {
+				return a.hash.localeCompare(b.hash);
+			}
+			return aTime - bTime;
+		});
+	}
+
+	calculateTimelineSpacing(nodes) {
+		const maxDepth = this.computeGraphDepth(nodes);
+		const desiredLength =
+			maxDepth * LINK_DISTANCE * TIMELINE_SPACING + TIMELINE_PADDING;
+		const start = (this.viewportWidth - desiredLength) / 2;
+		const span = Math.max(1, nodes.length - 1);
+		const step = span === 0 ? 0 : desiredLength / span;
+
+		return { start, step, span };
+	}
+
+	computeGraphDepth(nodes) {
+		const parentsByHash = new Map(
+			nodes.map((n) => [n.hash, n.commit?.parents ?? []]),
+		);
+		const memo = new Map();
+
+		const dfs = (hash, depth) => {
+			if (!parentsByHash.has(hash)) return depth;
+
+			let maxDepth = depth;
+			for (const parentHash of parentsByHash.get(hash)) {
+				const key = `${parentHash}|${depth + 1}`;
+
+				if (memo.has(key)) {
+					maxDepth = Math.max(maxDepth, memo.get(key));
+				} else {
+					const parentDepth = dfs(parentHash, depth + 1);
+					memo.set(key, parentDepth);
+					maxDepth = Math.max(maxDepth, parentDepth);
+				}
+			}
+			return maxDepth;
+		};
+
+		let maxLinkDistance = 0;
+		for (const node of nodes) {
+			const depth = dfs(node.hash, 0);
+			maxLinkDistance = Math.max(maxLinkDistance, depth);
+		}
+
+		return Math.max(1, maxLinkDistance);
+	}
+
+	positionNodesHorizontally(ordered, spacing) {
+		const { start, step, span } = spacing;
+		const centerY = this.viewportHeight / 2;
+
+		ordered.forEach((node, index) => {
+			node.x = span === 0 ? start + step / 2 : start + step * index;
+			node.y = centerY;
+			node.vx = 0;
+			node.vy = 0;
+		});
+	}
+
+	findRightmostCommit(nodes) {
+		const commitNodes = nodes.filter((n) => n.type === "commit");
+		if (commitNodes.length === 0) return null;
+
+		let rightmost = commitNodes[0];
+		let bestTime = getCommitTimestamp(rightmost.commit);
+
+		for (const node of commitNodes) {
+			const time = getCommitTimestamp(node.commit);
+			if (time > bestTime || (time === bestTime && node.x > rightmost.x)) {
+				bestTime = time;
+				rightmost = node;
+			}
+		}
+
+		return rightmost;
+	}
+
+	shouldAutoCenter() {
+		return this.mode === "timeline" && this.autoCenter;
+	}
+
+	disableAutoCenter() {
+		this.autoCenter = false;
+	}
+
+	checkAutoCenterStop(alpha) {
+		if (this.autoCenter && alpha < TIMELINE_AUTO_CENTER_ALPHA) {
+			this.autoCenter = false;
+		}
+	}
+
+	restartSimulation(alpha = 0.3) {
+		this.simulation.alpha(alpha).restart();
+		this.simulation.alphaTarget(0);
+	}
+
+	boostSimulation(structureChanged) {
+		const currentAlpha = this.simulation.alpha();
+		const desiredAlpha = structureChanged ? 0.28 : 0.08;
+		const nextAlpha = Math.max(currentAlpha, desiredAlpha);
+		this.simulation.alpha(nextAlpha).restart();
+		this.simulation.alphaTarget(0);
+	}
+}
+
+class CommitGraph {
+	constructor(rootElement) {
+		this.canvas = document.createElement("canvas");
+		this.ctx = this.canvas.getContext("2d", { alpha: false });
+		rootElement.appendChild(this.canvas);
+
+		this.commits = new Map(); // hash -> commit object
+		this.branches = new Map(); // name -> target hash
+		this.nodeState = new Map(); // hash|name -> { x, y, vx, vy, radius, ... }
+
+		this.simulation = d3
+			.forceSimulation()
+			.force("charge", d3.forceManyBody().strength(CHARGE_STRENGTH))
+			.force("center", d3.forceCenter(0, 0))
+			.force(
+				"link",
+				d3
+					.forceLink()
+					.id((d) => d.id)
+					.distance(LINK_DISTANCE)
+					.strength(LINK_STRENGTH),
+			)
+			.force("collision", d3.forceCollide().radius(COLLISION_RADIUS))
+			.on("tick", () => this.render());
+
+		this.tooltip = new TooltipManager(this.canvas);
+		this.interaction = new InteractionHandler(this.canvas, this.simulation);
+
+		this.zoomBehavior = d3
+			.zoom()
+			.scaleExtent([ZOOM_MIN, ZOOM_MAX])
+			.filter((event) => !this.interaction.isDragging || event.type === "wheel")
+			.on("zoom", () => this.render());
+
+		d3.select(this.canvas).call(this.zoomBehavior).on("dblclick.zoom", null);
+
+		this.canvas.addEventListener("pointerdown", (e) => this.onPointerDown(e));
+		this.canvas.addEventListener("pointermove", (e) => this.onPointerMove(e));
+		this.canvas.addEventListener("pointerup", (e) => this.onPointerUp(e));
+		this.canvas.addEventListener("pointercancel", (e) => this.onPointerUp(e));
+		window.addEventListener("resize", () => this.resize());
+
+        this.watchTheme();
+        this.resize();
+        this.setLayoutMode("")
+	}
+
+	applyDelta(delta) {
+		if (!delta) {
+			return;
+		}
+
+		for (const commit of delta.addedCommits || []) {
+			if (commit?.hash) {
+				commit.x;
+				this.commits.set(commit.hash, commit);
+			}
+		}
+	}
+}
+
 const summarizeHash = (value) => {
 	if (!value) {
 		return "";
@@ -380,10 +628,43 @@ export function createGraph(rootElement) {
 	let viewportWidth = 0;
 	let viewportHeight = 0;
 
+	const simulation = d3
+		.forceSimulation(nodes)
+		.force("charge", d3.forceManyBody().strength(CHARGE_STRENGTH))
+		.force("center", d3.forceCenter(0, 0))
+		.force("collision", d3.forceCollide().radius(COLLISION_RADIUS))
+		.force(
+			"link",
+			d3
+				.forceLink(links)
+				.id((d) => d.hash)
+				.distance(LINK_DISTANCE)
+				.strength(LINK_STRENGTH),
+		)
+		.on("tick", tick);
+
+	const layoutManager = new LayoutManager(
+		simulation,
+		viewportWidth,
+		viewportHeight,
+	);
+
+	zoom = d3
+		.zoom()
+		.filter((event) => !isDraggingNode || event.type === "wheel")
+		.scaleExtent([ZOOM_MIN, ZOOM_MAX])
+		.on("zoom", (event) => {
+			if (layoutMode === "timeline" && event.sourceEvent) {
+				autoCenterTimeline = false;
+			}
+			zoomTransform = event.transform;
+			render();
+		});
+
 	canvas.style.cursor = "default";
 
 	const tooltipManager = new TooltipManager(canvas);
-    const renderer = new GraphRenderer(canvas, buildPalette(canvas));
+	const renderer = new GraphRenderer(canvas, buildPalette(canvas));
 
 	const updateTooltipPosition = () => {
 		tooltipManager.updatePosition(zoomTransform);
@@ -531,53 +812,23 @@ export function createGraph(rootElement) {
 	};
 
 	const centerTimelineOnRightmost = () => {
-		if (!zoom) {
-			return;
+		if (!zoom) return;
+
+		const rightmost = layoutManager.findRightmostCommit(nodes);
+		if (rightmost) {
+			d3.select(canvas).call(zoom.translateTo, rightmost.x, rightmost.y);
 		}
-		const commitNodes = nodes.filter((node) => node.type === "commit");
-		if (commitNodes.length === 0) {
-			return;
-		}
-		let selected = commitNodes[0];
-		let bestTime = getCommitTimestamp(selected.commit);
-		for (const node of commitNodes) {
-			const time = getCommitTimestamp(node.commit);
-			if (time > bestTime) {
-				bestTime = time;
-				selected = node;
-			} else if (time === bestTime && node.x > selected.x) {
-				selected = node;
-			}
-		}
-		d3.select(canvas).call(zoom.translateTo, selected.x, selected.y);
 	};
 
-	const setLayoutMode = (mode, { force = false } = {}) => {
-		if (!force && layoutMode === mode) {
-			return;
-		}
+	const setLayoutMode = (mode) => {
+		const changed = layoutManager.setMode(mode);
+		if (!changed) return;
 
-		layoutMode = mode;
-		releaseDrag();
+		releaseDrag(); // Clear any active drag
 
-		if (layoutMode === "timeline") {
-			snapTimelineLayout();
-			autoCenterTimeline = true;
+		if (mode === "timeline") {
+			layoutManager.applyTimelineLayout(nodes);
 			centerTimelineOnRightmost();
-		} else {
-			autoCenterTimeline = false;
-			simulation.force("timelineX", null);
-			simulation.force("timelineY", null);
-			const collision = simulation.force("collision");
-			if (collision) {
-				collision.radius(COLLISION_RADIUS);
-			}
-			const charge = simulation.force("charge");
-			if (charge) {
-				charge.strength(CHARGE_STRENGTH);
-			}
-			simulation.alpha(1.0).restart();
-			simulation.alphaTarget(0);
 		}
 	};
 
@@ -685,34 +936,7 @@ export function createGraph(rootElement) {
 	let palette = buildPalette(canvas);
 	let removeThemeWatcher = null;
 
-	zoom = d3
-		.zoom()
-		.filter((event) => !isDraggingNode || event.type === "wheel")
-		.scaleExtent([ZOOM_MIN, ZOOM_MAX])
-		.on("zoom", (event) => {
-			if (layoutMode === "timeline" && event.sourceEvent) {
-				autoCenterTimeline = false;
-			}
-			zoomTransform = event.transform;
-			render();
-		});
-
 	d3.select(canvas).call(zoom).on("dblclick.zoom", null);
-
-	const simulation = d3
-		.forceSimulation(nodes)
-		.force("charge", d3.forceManyBody().strength(CHARGE_STRENGTH))
-		.force("center", d3.forceCenter(0, 0))
-		.force(
-			"link",
-			d3
-				.forceLink(links)
-				.id((d) => d.hash)
-				.distance(LINK_DISTANCE)
-				.strength(LINK_STRENGTH),
-		)
-		.force("collision", d3.forceCollide().radius(COLLISION_RADIUS))
-		.on("tick", tick);
 
 	function resize() {
 		const parent = canvas.parentElement;
@@ -730,15 +954,12 @@ export function createGraph(rootElement) {
 		canvas.style.width = `${cssWidth}px`;
 		canvas.style.height = `${cssHeight}px`;
 
-		simulation.force(
-			"center",
-			d3.forceCenter(viewportWidth / 2, viewportHeight / 2),
-		);
-		if (layoutMode === "timeline") {
+		layoutManager.updateViewport(cssWidth, cssHeight);
+
+		if (layoutManager.getMode() === "timeline") {
 			render();
 		} else {
-			simulation.alpha(0.3).restart();
-			simulation.alphaTarget(0);
+			layoutManager.restartSimulation(0.3);
 		}
 	}
 
@@ -748,7 +969,7 @@ export function createGraph(rootElement) {
 	const themeWatcher = window.matchMedia?.("(prefers-color-scheme: dark)");
 	if (themeWatcher) {
 		const handler = () => {
-            renderer.updatePallete(palette);
+			renderer.updatePallete(palette);
 			render();
 		};
 		if (themeWatcher.addEventListener) {
@@ -773,7 +994,7 @@ export function createGraph(rootElement) {
 	canvas.addEventListener("pointerup", pointerHandlers.up);
 	canvas.addEventListener("pointercancel", pointerHandlers.cancel);
 
-	setLayoutMode("timeline", { force: true });
+	setLayoutMode("timeline");
 
 	function updateGraph() {
 		const existingCommitNodes = new Map();
@@ -891,17 +1112,12 @@ export function createGraph(rootElement) {
 		const shouldBoostAlpha =
 			commitStructureChanged || branchStructureChanged || linkStructureChanged;
 
-		if (layoutMode === "timeline") {
-			snapTimelineLayout();
-			autoCenterTimeline = true;
+		if (layoutManager.getMode() === "timeline") {
+			layoutManager.applyTimelineLayout(nodes);
 			centerTimelineOnRightmost();
 		}
 
-		const currentAlpha = simulation.alpha();
-		const desiredAlpha = shouldBoostAlpha ? 0.28 : 0.08;
-		const nextAlpha = Math.max(currentAlpha, desiredAlpha);
-		simulation.alpha(nextAlpha).restart();
-		simulation.alphaTarget(0);
+		layoutManager.boostSimulation(structureChanged);
 	}
 
 	function createCommitNode(hash, anchorNode) {
@@ -952,23 +1168,21 @@ export function createGraph(rootElement) {
 		};
 	}
 
-    function render() {
-        renderer.render({
-            nodes,
-            links,
-            zoomTransform,
-            viewportWidth,
-            viewportHeight,
-            tooltipManager,
-        })
-    }
+	function render() {
+		renderer.render({
+			nodes,
+			links,
+			zoomTransform,
+			viewportWidth,
+			viewportHeight,
+			tooltipManager,
+		});
+	}
 
 	function tick() {
-		if (layoutMode === "timeline" && autoCenterTimeline) {
+		if (layoutManager.shouldAutoCenter()) {
 			centerTimelineOnRightmost();
-			if (simulation.alpha() < TIMELINE_AUTO_CENTER_ALPHA) {
-				autoCenterTimeline = false;
-			}
+			layoutManager.checkAutoCenterStop(simulation.alpha());
 		}
 		render();
 	}
