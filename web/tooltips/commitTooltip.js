@@ -89,6 +89,13 @@ export class CommitTooltip extends Tooltip {
     }
 
     /**
+	 * @returns {{x: number, y: number}} Tooltip offset relative to commit node.
+	 */
+	getOffset() {
+		return { x: 24, y: -12 };
+	}
+
+	/**
      * @returns {string|null} Hash used to highlight corresponding commit node.
      */
     getHighlightKey() {

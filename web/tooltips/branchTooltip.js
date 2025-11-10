@@ -71,10 +71,10 @@ export class BranchTooltip extends Tooltip {
     }
 
     /**
-     * @returns {{x: number, y: number}} Offset that nudges the tooltip away from node center.
+     * @returns {{x: number, y: number}} Tooltip offset relative to branch node.
      */
     getOffset() {
-        return { x: 18, y: 10 };
+        return { x: 20, y: -10 };
     }
 
     /**

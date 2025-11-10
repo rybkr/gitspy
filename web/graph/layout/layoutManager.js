@@ -10,7 +10,6 @@ import {
 	LINK_DISTANCE,
 	TIMELINE_AUTO_CENTER_ALPHA,
 	TIMELINE_MARGIN,
-	TIMELINE_MIN_RANGE_FRACTION,
 	TIMELINE_PADDING,
 	TIMELINE_SPACING,
 } from "../constants.js";
@@ -29,7 +28,6 @@ export class LayoutManager {
 		this.simulation = simulation;
 		this.viewportWidth = viewportWidth;
 		this.viewportHeight = viewportHeight;
-		this.mode = "force";
 		this.autoCenter = false;
 	}
 
@@ -46,71 +44,6 @@ export class LayoutManager {
 	}
 
 	/**
-	 * Switches between timeline and force-directed modes.
-	 *
-	 * @param {"force" | "timeline"} mode Layout mode identifier.
-	 * @returns {boolean} True when the mode changed.
-	 */
-	setMode(mode) {
-		if (this.mode === mode) {
-			return false;
-		}
-		this.mode = mode;
-
-		if (mode === "timeline") {
-			this.enableTimelineMode();
-		} else {
-			this.enableForceMode();
-		}
-
-		return true;
-	}
-
-	/**
-	 * @returns {"force" | "timeline"} Current layout mode.
-	 */
-	getMode() {
-		return this.mode;
-	}
-
-	/**
-	 * Configures the simulation for timeline layout.
-	 */
-	enableTimelineMode() {
-		this.simulation.force("timelineX", null);
-		this.simulation.force("timelineY", null);
-
-		const collision = this.simulation.force("collision");
-		if (collision) {
-			collision.radius(COLLISION_RADIUS * 0.5);
-		}
-
-		this.autoCenter = true;
-	}
-
-	/**
-	 * Configures the simulation for force-directed layout.
-	 */
-	enableForceMode() {
-		this.simulation.force("timelineX", null);
-		this.simulation.force("timelineY", null);
-
-		const collision = this.simulation.force("collision");
-		if (collision) {
-			collision.radius(COLLISION_RADIUS);
-		}
-
-		const charge = this.simulation.force("charge");
-		if (charge) {
-			charge.strength(CHARGE_STRENGTH);
-		}
-
-		this.autoCenter = false;
-		this.simulation.alpha(1.0).restart();
-		this.simulation.alphaTarget(0);
-	}
-
-	/**
 	 * Applies timeline layout by positioning commits chronologically.
 	 *
 	 * @param {import("../types.js").GraphNode[]} nodes Collection of nodes in the simulation.
@@ -121,7 +54,7 @@ export class LayoutManager {
 
 		const ordered = this.sortCommitsByTime(commitNodes);
 		const spacing = this.calculateTimelineSpacing(commitNodes);
-		this.positionNodesHorizontally(ordered, spacing);
+		this.positionNodesVertically(ordered, spacing);
 	}
 
 	/**
@@ -146,103 +79,71 @@ export class LayoutManager {
 	 * @returns {{start: number, step: number, span: number}} Calculated spacing values.
 	 */
 	calculateTimelineSpacing(nodes) {
-		const maxDepth = this.computeGraphDepth(nodes);
-		const desiredLength =
-			maxDepth * LINK_DISTANCE * TIMELINE_SPACING + TIMELINE_PADDING;
-		const start = (this.viewportWidth - desiredLength) / 2;
-		const span = Math.max(1, nodes.length - 1);
-		const step = span === 0 ? 0 : desiredLength / span;
+		const count = nodes.length;
+		const span = Math.max(1, count - 1);
+		if (span === 0) {
+			return { start: this.viewportHeight / 2, step: 0, span };
+		}
+		const baseStep = LINK_DISTANCE * TIMELINE_SPACING;
+		const desiredLength = span * baseStep + TIMELINE_PADDING;
+		const available =
+			Math.max(desiredLength, this.viewportHeight - TIMELINE_MARGIN * 2);
+		const step = available / span;
+		const start = Math.max(
+			TIMELINE_MARGIN,
+			(this.viewportHeight - available) / 2,
+		);
 
 		return { start, step, span };
 	}
 
 	/**
-	 * Estimates graph depth by following parent relationships.
-	 *
-	 * @param {import("../types.js").GraphNodeCommit[]} nodes Commit node collection.
-	 * @returns {number} Maximum depth encountered.
-	 */
-	computeGraphDepth(nodes) {
-		const parentsByHash = new Map(
-			nodes.map((n) => [n.hash, n.commit?.parents ?? []]),
-		);
-		const memo = new Map();
-
-		const dfs = (hash, depth) => {
-			if (!parentsByHash.has(hash)) return depth;
-
-			let maxDepth = depth;
-			for (const parentHash of parentsByHash.get(hash)) {
-				const key = `${parentHash}|${depth + 1}`;
-
-				if (memo.has(key)) {
-					maxDepth = Math.max(maxDepth, memo.get(key));
-				} else {
-					const parentDepth = dfs(parentHash, depth + 1);
-					memo.set(key, parentDepth);
-					maxDepth = Math.max(maxDepth, parentDepth);
-				}
-			}
-
-			return maxDepth;
-		};
-
-		let maxLinkDistance = 0;
-		for (const node of nodes) {
-			const depth = dfs(node.hash, 0);
-			maxLinkDistance = Math.max(maxLinkDistance, depth);
-		}
-
-		return Math.max(1, maxLinkDistance);
-	}
-
-	/**
-	 * Places commit nodes along the X axis using computed spacing.
+	 * Places commit nodes along the Y axis using computed spacing.
 	 *
 	 * @param {import("../types.js").GraphNodeCommit[]} ordered Sorted commit nodes.
 	 * @param {{start: number, step: number, span: number}} spacing Timeline spacing info.
 	 */
-	positionNodesHorizontally(ordered, spacing) {
+	positionNodesVertically(ordered, spacing) {
 		const { start, step, span } = spacing;
-		const centerY = this.viewportHeight / 2;
+		const centerX = this.viewportWidth / 2;
 
 		ordered.forEach((node, index) => {
-			node.x = span === 0 ? start + step / 2 : start + step * index;
-			node.y = centerY;
+			node.x = centerX;
+			node.y = span === 0 ? start : start + step * index;
 			node.vx = 0;
 			node.vy = 0;
 		});
 	}
 
 	/**
-	 * Finds the rightmost commit node by timestamp and position.
+	 * Finds the newest commit node (largest timestamp) for centering.
 	 *
 	 * @param {import("../types.js").GraphNode[]} nodes Collection of nodes in the simulation.
-	 * @returns {import("../types.js").GraphNodeCommit | null} Rightmost commit node when found.
+	 * @returns {import("../types.js").GraphNodeCommit | null} Latest commit node when found.
 	 */
-	findRightmostCommit(nodes) {
+	findLatestCommit(nodes) {
 		const commitNodes = nodes.filter((n) => n.type === "commit");
 		if (commitNodes.length === 0) return null;
 
-		let rightmost = commitNodes[0];
-		let bestTime = getCommitTimestamp(rightmost.commit);
+		let latest = commitNodes[0];
+		let bestTime = getCommitTimestamp(latest.commit);
 
 		for (const node of commitNodes) {
 			const time = getCommitTimestamp(node.commit);
-			if (time > bestTime || (time === bestTime && node.x > rightmost.x)) {
+			if (time > bestTime || (time === bestTime && node.y > latest.y)) {
 				bestTime = time;
-				rightmost = node;
+				latest = node;
 			}
 		}
 
-		return rightmost;
+		return latest;
 	}
 
 	/**
 	 * @returns {boolean} True when auto-centering should continue.
 	 */
 	shouldAutoCenter() {
-		return this.mode === "timeline" && this.autoCenter;
+		return this.autoCenter;
 	}
 
 	/**
@@ -261,6 +162,13 @@ export class LayoutManager {
 		if (this.autoCenter && alpha < TIMELINE_AUTO_CENTER_ALPHA) {
 			this.autoCenter = false;
 		}
+	}
+
+	/**
+	 * Requests that the layout auto-center on the newest commit.
+	 */
+	requestAutoCenter() {
+		this.autoCenter = true;
 	}
 
 	/**

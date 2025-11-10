@@ -6,6 +6,7 @@
 import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7.9.0/+esm";
 import { TooltipManager } from "../tooltips/index.js";
 import {
+	BRANCH_NODE_OFFSET_X,
 	BRANCH_NODE_OFFSET_Y,
 	BRANCH_NODE_RADIUS,
 	CHARGE_STRENGTH,
@@ -41,22 +42,23 @@ export function createGraphController(rootElement) {
 	let dragState = null;
 	let isDraggingNode = false;
 	const pointerHandlers = {};
+	let initialLayoutComplete = false;
 
 	let viewportWidth = 0;
 	let viewportHeight = 0;
 
 	const simulation = d3
 		.forceSimulation(nodes)
-		.force("charge", d3.forceManyBody().strength(-110))
+		.force("charge", d3.forceManyBody().strength(CHARGE_STRENGTH))
 		.force("center", d3.forceCenter(0, 0))
-		.force("collision", d3.forceCollide().radius(14))
+		.force("collision", d3.forceCollide().radius(COLLISION_RADIUS))
 		.force(
 			"link",
 			d3
 				.forceLink(links)
 				.id((d) => d.hash)
-				.distance(50)
-				.strength(0.4),
+				.distance(LINK_DISTANCE)
+				.strength(LINK_STRENGTH),
 		)
 		.on("tick", tick);
 
@@ -67,7 +69,7 @@ export function createGraphController(rootElement) {
 		.filter((event) => !isDraggingNode || event.type === "wheel")
 		.scaleExtent([ZOOM_MIN, ZOOM_MAX])
 		.on("zoom", (event) => {
-			if (state.layoutMode === "timeline" && event.sourceEvent) {
+			if (event.sourceEvent) {
 				layoutManager.disableAutoCenter();
 			}
 			zoomTransform = event.transform;
@@ -124,24 +126,11 @@ export function createGraphController(rootElement) {
 		return bestNode;
 	};
 
-	const centerTimelineOnRightmost = () => {
-		const rightmost = layoutManager.findRightmostCommit(nodes);
-		if (rightmost) {
+	const centerOnLatestCommit = () => {
+		const latest = layoutManager.findLatestCommit(nodes);
+		if (latest) {
 			// d3.select(canvas).call(...) translates view to center on target coordinates.
-			d3.select(canvas).call(zoom.translateTo, rightmost.x, rightmost.y);
-		}
-	};
-
-	const setLayoutMode = (mode) => {
-		const changed = layoutManager.setMode(mode);
-		if (!changed) return;
-
-		state.layoutMode = mode;
-		releaseDrag();
-
-		if (mode === "timeline") {
-			layoutManager.applyTimelineLayout(nodes);
-			centerTimelineOnRightmost();
+			d3.select(canvas).call(zoom.translateTo, latest.x, latest.y);
 		}
 	};
 
@@ -181,6 +170,8 @@ export function createGraphController(rootElement) {
 			hideTooltip();
 			return;
 		}
+
+		layoutManager.disableAutoCenter();
 
 		const currentTarget = tooltipManager.getTargetData();
 		if (tooltipManager.isVisible() && currentTarget === targetNode) {
@@ -268,12 +259,8 @@ export function createGraphController(rootElement) {
 		canvas.style.height = `${cssHeight}px`;
 
 		layoutManager.updateViewport(cssWidth, cssHeight);
-
-		if (layoutManager.getMode() === "timeline") {
-			render();
-		} else {
-			layoutManager.restartSimulation(0.3);
-		}
+		layoutManager.restartSimulation(1.0);
+		render();
 	};
 
 	window.addEventListener("resize", resize);
@@ -307,8 +294,6 @@ export function createGraphController(rootElement) {
 	canvas.addEventListener("pointermove", pointerHandlers.move);
 	canvas.addEventListener("pointerup", pointerHandlers.up);
 	canvas.addEventListener("pointercancel", pointerHandlers.cancel);
-
-	setLayoutMode("timeline");
 
 	function updateGraph() {
 		const existingCommitNodes = new Map();
@@ -414,13 +399,20 @@ export function createGraphController(rootElement) {
 		const linkStructureChanged = previousLinkCount !== nextLinks.length;
 		const structureChanged =
 			commitStructureChanged || branchStructureChanged || linkStructureChanged;
+		const hasCommits = nextCommitNodes.length > 0;
 
-		if (layoutManager.getMode() === "timeline") {
+		if (!initialLayoutComplete && hasCommits) {
 			layoutManager.applyTimelineLayout(nodes);
-			centerTimelineOnRightmost();
 			snapBranchesToTargets(pendingBranchAlignments);
+			layoutManager.requestAutoCenter();
+			centerOnLatestCommit();
+			initialLayoutComplete = true;
+			layoutManager.restartSimulation(1.0);
 		} else {
 			snapBranchesToTargets(pendingBranchAlignments);
+			if (commitStructureChanged) {
+				layoutManager.requestAutoCenter();
+			}
 		}
 
 		layoutManager.boostSimulation(structureChanged);
@@ -470,8 +462,8 @@ export function createGraphController(rootElement) {
 			const baseY = targetNode.y ?? 0;
 			const jitter = (range) => (Math.random() - 0.5) * range;
 
-			branchNode.x = baseX + jitter(2);
-			branchNode.y = baseY - BRANCH_NODE_OFFSET_Y + jitter(2);
+			branchNode.x = baseX + BRANCH_NODE_OFFSET_X + jitter(2);
+			branchNode.y = baseY + jitter(BRANCH_NODE_OFFSET_Y);
 			branchNode.vx = 0;
 			branchNode.vy = 0;
 		}
@@ -484,8 +476,8 @@ export function createGraphController(rootElement) {
 				type: "branch",
 				branch: branchName,
 				targetHash: targetNode.hash ?? null,
-				x: (targetNode.x ?? 0) + jitter(4),
-				y: (targetNode.y ?? 0) - BRANCH_NODE_OFFSET_Y + jitter(4),
+				x: (targetNode.x ?? 0) + BRANCH_NODE_OFFSET_X + jitter(4),
+				y: (targetNode.y ?? 0) + jitter(BRANCH_NODE_OFFSET_Y),
 				vx: 0,
 				vy: 0,
 			};
@@ -499,8 +491,8 @@ export function createGraphController(rootElement) {
 			type: "branch",
 			branch: branchName,
 			targetHash: null,
-			x: baseX + jitterFallback(6),
-			y: baseY - BRANCH_NODE_OFFSET_Y + jitterFallback(6),
+			x: baseX + BRANCH_NODE_OFFSET_X + jitterFallback(6),
+			y: baseY + jitterFallback(BRANCH_NODE_OFFSET_Y),
 			vx: 0,
 			vy: 0,
 		};
@@ -519,7 +511,7 @@ export function createGraphController(rootElement) {
 
 	function tick() {
 		if (layoutManager.shouldAutoCenter()) {
-			centerTimelineOnRightmost();
+			centerOnLatestCommit();
 			layoutManager.checkAutoCenterStop(simulation.alpha());
 		}
 		render();

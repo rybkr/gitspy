@@ -74,7 +74,6 @@
  * @property {Map<string, string>} branches Map of branch name to target hash.
  * @property {GraphNode[]} nodes Collection of nodes rendered on the canvas.
  * @property {Array<{source: string | GraphNode, target: string | GraphNode, kind?: string}>} links Force simulation link definitions.
- * @property {"timeline" | "force"} layoutMode Current layout mode.
  * @property {import("d3").ZoomTransform} zoomTransform Current D3 zoom transform.
  */
 

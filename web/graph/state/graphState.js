@@ -16,7 +16,6 @@ export function createGraphState() {
 		branches: new Map(),
 		nodes: [],
 		links: [],
-		layoutMode: "timeline",
 		zoomTransform: d3.zoomIdentity,
 	};
 }

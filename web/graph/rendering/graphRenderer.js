@@ -311,7 +311,7 @@ export class GraphRenderer {
     }
 
     /**
-     * Draws the text label above a commit node.
+     * Draws the text label alongside a commit node.
      *
      * @param {import("../types.js").GraphNodeCommit} node Commit node to annotate.
      */
@@ -323,21 +323,21 @@ export class GraphRenderer {
         this.ctx.save();
         this.ctx.font = LABEL_FONT;
         this.ctx.textBaseline = "middle";
-        this.ctx.textAlign = "center";
+        this.ctx.textAlign = "left";
 
-        const metrics = this.ctx.measureText(text);
-        const textHeight = metrics.actualBoundingBoxAscent ?? 9;
-        const offset = textHeight / 2 + LABEL_PADDING;
+        const offset = node.radius + LABEL_PADDING;
+        const labelX = node.x + offset;
+        const labelY = node.y;
 
         this.ctx.lineWidth = 3;
         this.ctx.lineJoin = "round";
         this.ctx.strokeStyle = this.palette.labelHalo;
         this.ctx.globalAlpha = 0.9 * spawnAlpha;
-        this.ctx.strokeText(text, node.x, node.y - offset);
+        this.ctx.strokeText(text, labelX, labelY);
 
         this.ctx.globalAlpha = spawnAlpha;
         this.ctx.fillStyle = this.palette.labelText;
-        this.ctx.fillText(text, node.x, node.y - offset);
+        this.ctx.fillText(text, labelX, labelY);
 
         this.ctx.restore();
     }
