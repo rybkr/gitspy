@@ -1,5 +1,5 @@
 import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7.9.0/+esm";
-import { TooltipManager } from "./tooltip.js"
+import { TooltipManager } from "./tooltip.js";
 
 const NODE_RADIUS = 6;
 const LINK_DISTANCE = 50;
@@ -71,39 +71,6 @@ const formatSignature = (label, signature) => {
 	return fragments.join("    ");
 };
 
-function applyDelta(delta) {
-	if (!delta) {
-		return;
-	}
-
-	for (const commit of delta.addedCommits) {
-		if (commit?.hash) {
-			commits.set(commit.hash, commit);
-		}
-	}
-	for (const commit of delta.deletedCommits) {
-		if (commit?.hash) {
-			commits.delete(commit.hash);
-		}
-	}
-
-	for (const [name, hash] of Object.entries(delta.addedBranches)) {
-		if (name && hash) {
-			branches.set(name, hash);
-		}
-	}
-	for (const [name, hash] of Object.entries(delta.amendedBranches)) {
-		if (name && hash) {
-			branches.set(name, hash);
-		}
-	}
-	for (const name of Object.keys(delta.deletedBranches)) {
-		branches.delete(name);
-	}
-
-	updateGraph();
-}
-
 export function createGraph(rootElement) {
 	const canvas = document.createElement("canvas");
 	const context = canvas.getContext("2d", { alpha: false });
@@ -114,6 +81,39 @@ export function createGraph(rootElement) {
 	const branches = new Map();
 	const nodes = [];
 	const links = [];
+
+	function applyDelta(delta) {
+		if (!delta) {
+			return;
+		}
+
+		for (const commit of delta.addedCommits || []) {
+			if (commit?.hash) {
+				commits.set(commit.hash, commit);
+			}
+		}
+		for (const commit of delta.deletedCommits || []) {
+			if (commit?.hash) {
+				commits.delete(commit.hash);
+			}
+		}
+
+		for (const [name, hash] of Object.entries(delta.addedBranches) || {}) {
+			if (name && hash) {
+				branches.set(name, hash);
+			}
+		}
+		for (const [name, hash] of Object.entries(delta.amendedBranches) || {}) {
+			if (name && hash) {
+				branches.set(name, hash);
+			}
+		}
+		for (const name of Object.keys(delta.deletedBranches) || {}) {
+			branches.delete(name);
+		}
+
+		updateGraph();
+	}
 
 	let zoomTransform = d3.zoomIdentity;
 	let dragState = null;
@@ -424,7 +424,7 @@ export function createGraph(rootElement) {
 				const distance = Math.hypot(x - dragState.startX, y - dragState.startY);
 				if (distance > DRAG_ACTIVATION_DISTANCE) {
 					dragState.dragged = true;
-					hideCommitTooltip();
+					hideTooltip();
 				}
 			}
 
@@ -787,12 +787,7 @@ export function createGraph(rootElement) {
 		}
 
 		for (const node of nodes) {
-			if (node.type !== "commit") {
-				continue;
-			}
-
-			const highlightKey = tooltipManager.getHighlightKey();
-			const isHighlighted = highlightKey && node.hash === highlightKey;
+			const isHighlighted = tooltipManager.isHighlighted(node);
 			const currentRadius = node.radius ?? NODE_RADIUS;
 			const targetRadius = isHighlighted ? HIGHLIGHT_NODE_RADIUS : NODE_RADIUS;
 			const nodeRadius = currentRadius + (targetRadius - currentRadius) * 0.25;

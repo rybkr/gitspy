@@ -106,7 +106,6 @@ class CommitTooltip extends Tooltip {
 
 		tooltip.append(this.headerEl, this.messageEl);
 		document.body.appendChild(tooltip);
-
 		return tooltip;
 	}
 
@@ -121,7 +120,7 @@ class CommitTooltip extends Tooltip {
 	buildContent(node) {
 		const commit = node.commit;
 
-		this.hashEl.textContent = shortenHash(commit.hash);
+		this.hashEl.textContent = commit.hash;
 
 		const metaParts = [];
 		if (commit.author?.name) {
@@ -145,11 +144,55 @@ class CommitTooltip extends Tooltip {
 	}
 }
 
+class BranchTooltip extends Tooltip {
+	createElement() {
+		const tooltip = document.createElement("div");
+		tooltip.className = this.getClassName();
+		tooltip.hidden = true;
+
+		this.nameEl = document.createElement("div");
+		this.nameEl.className = "branch-tooltip-name";
+
+		this.targetEl = document.createElement("div");
+		this.targetEl.className = "branch-tooltip-target";
+
+		tooltip.append(this.nameEl, this.targetEl);
+		document.body.appendChild(tooltip);
+		return tooltip;
+	}
+
+	getClassName() {
+		return "branch-tooltip";
+	}
+
+	validate(node) {
+		return node && node.type === "branch" && node.branch;
+	}
+
+	buildContent(node) {
+		this.nameEl.textContent = node.branch;
+		this.targetEl.textContent = shortenHash(node.targetHash);
+	}
+
+	getTargetPosition(node) {
+		return { x: node.x, y: node.y };
+	}
+
+	getOffset() {
+		return { x: 18, y: 10 };
+	}
+
+	getHighlightKey() {
+		return this.targetData?.branch || null;
+	}
+}
+
 export class TooltipManager {
 	constructor(canvas) {
 		this.canvas = canvas;
 		this.tooltips = {
 			commit: new CommitTooltip(canvas),
+            branch: new BranchTooltip(canvas),
 		};
 		this.activeTooltip = null;
 	}
@@ -193,6 +236,15 @@ export class TooltipManager {
 		return this.activeTooltip?.visible || false;
 	}
 
+    isHighlighted(node) {
+        if (node.type === "commit") {
+            return node.hash === this.getHighlightKey();
+        }
+        if (node.type === "branch") {
+            return node.branch === this.getHighlightKey();
+        }
+    }
+
 	getTargetData() {
 		return this.activeTooltip?.targetData || null;
 	}
@@ -202,4 +254,8 @@ export class TooltipManager {
 			tooltip.destroy();
 		}
 	}
+}
+
+function shortenHash(hash) {
+	return typeof hash === "string" && hash.length >= 7 ? hash.slice(0, 7) : hash;
 }
