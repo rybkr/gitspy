@@ -32,6 +32,260 @@ const TOOLTIP_OFFSET_X = 18;
 const TOOLTIP_OFFSET_Y = -24;
 const HIGHLIGHT_NODE_RADIUS = NODE_RADIUS + 2.5;
 
+class GraphRenderer {
+	constructor(canvas, palette) {
+		this.canvas = canvas;
+		this.ctx = canvas.getContext("2d", { alpha: false });
+		this.palette = palette;
+	}
+
+	render(state) {
+		const { nodes, links, zoomTransform, viewportWidth, viewportHeight } =
+			state;
+		const highlightKey = state.tooltipManager?.getHighlightKey();
+
+		this.clear(viewportWidth, viewportHeight);
+		this.setupTransform(zoomTransform);
+
+		this.renderLinks(links, nodes);
+		this.renderNodes(nodes, highlightKey);
+
+		this.ctx.restore();
+	}
+
+	clear(width, height) {
+		const dpr = window.devicePixelRatio || 1;
+		this.ctx.save();
+		this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+		this.ctx.fillStyle = this.palette.background;
+		this.ctx.fillRect(0, 0, width, height);
+	}
+
+	setupTransform(zoomTransform) {
+		this.ctx.translate(zoomTransform.x, zoomTransform.y);
+		this.ctx.scale(zoomTransform.k, zoomTransform.k);
+	}
+
+	updatePalette(palette) {
+		this.palette = palette;
+	}
+
+	renderLinks(links, nodes) {
+		this.ctx.lineWidth = LINK_THICKNESS;
+
+		for (const link of links) {
+			const source = this.resolveNode(link.source, nodes);
+			const target = this.resolveNode(link.target, nodes);
+			if (!source || !target) continue;
+
+			this.renderLink(source, target, link.kind === "branch");
+		}
+	}
+
+	resolveNode(nodeOrHash, nodes) {
+		return typeof nodeOrHash === "object"
+			? nodeOrHash
+			: nodes.find((n) => n.hash === nodeOrHash);
+	}
+
+	renderLink(source, target, isBranch) {
+		const dx = target.x - source.x;
+		const dy = target.y - source.y;
+		const distance = Math.sqrt(dx * dx + dy * dy);
+		if (distance === 0) return;
+
+		const color = isBranch ? this.palette.branchLink : this.palette.link;
+		const targetRadius =
+			target.type === "branch" ? BRANCH_NODE_RADIUS : NODE_RADIUS;
+
+		this.renderArrow(source, target, dx, dy, distance, targetRadius, color);
+	}
+
+	renderArrow(source, target, dx, dy, distance, targetRadius, color) {
+		const arrowBase = Math.max(
+			(distance - targetRadius - ARROW_LENGTH) / distance,
+			0,
+		);
+		const arrowTip = Math.max((distance - targetRadius) / distance, 0);
+
+		const shaftEndX = source.x + dx * arrowBase;
+		const shaftEndY = source.y + dy * arrowBase;
+		const arrowTipX = source.x + dx * arrowTip;
+		const arrowTipY = source.y + dy * arrowTip;
+
+		// Draw shaft
+		this.ctx.strokeStyle = color;
+		this.ctx.beginPath();
+		this.ctx.moveTo(source.x, source.y);
+		this.ctx.lineTo(shaftEndX, shaftEndY);
+		this.ctx.stroke();
+
+		// Draw arrowhead
+		this.ctx.save();
+		this.ctx.translate(arrowTipX, arrowTipY);
+		this.ctx.rotate(Math.atan2(dy, dx));
+		this.ctx.beginPath();
+		this.ctx.moveTo(0, 0);
+		this.ctx.lineTo(-ARROW_LENGTH, ARROW_WIDTH / 2);
+		this.ctx.lineTo(-ARROW_LENGTH, -ARROW_WIDTH / 2);
+		this.ctx.closePath();
+		this.ctx.fillStyle = color;
+		this.ctx.fill();
+		this.ctx.restore();
+	}
+
+	renderNodes(nodes, highlightKey) {
+		for (const node of nodes) {
+			if (node.type === "commit") {
+				this.renderCommitNode(node, highlightKey);
+			}
+		}
+		for (const node of nodes) {
+			if (node.type === "branch") {
+				this.renderBranchNode(node, highlightKey);
+			}
+		}
+	}
+
+	renderCommitNode(node, highlightKey) {
+		const isHighlighted = highlightKey && node.hash === highlightKey;
+
+		const currentRadius = node.radius ?? NODE_RADIUS;
+		const targetRadius = isHighlighted ? HIGHLIGHT_NODE_RADIUS : NODE_RADIUS;
+		node.radius = currentRadius + (targetRadius - currentRadius) * 0.25;
+
+		if (isHighlighted) {
+			this.renderHighlightedCommit(node);
+		} else {
+			this.renderNormalCommit(node);
+		}
+
+		this.renderCommitLabel(node);
+	}
+
+	renderNormalCommit(node) {
+		this.ctx.fillStyle = this.palette.node;
+		this.ctx.beginPath();
+		this.ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
+		this.ctx.fill();
+	}
+
+	renderHighlightedCommit(node) {
+		this.ctx.save();
+		this.ctx.fillStyle = this.palette.nodeHighlightGlow;
+		this.ctx.globalAlpha = 0.35;
+		this.ctx.beginPath();
+		this.ctx.arc(node.x, node.y, node.radius + 7, 0, Math.PI * 2);
+		this.ctx.fill();
+		this.ctx.restore();
+
+		const gradient = this.ctx.createRadialGradient(
+			node.x,
+			node.y,
+			node.radius * 0.2,
+			node.x,
+			node.y,
+			node.radius,
+		);
+		gradient.addColorStop(0, this.palette.nodeHighlightCore);
+		gradient.addColorStop(0.7, this.palette.nodeHighlight);
+		gradient.addColorStop(1, this.palette.nodeHighlightRing);
+
+		this.ctx.fillStyle = gradient;
+		this.ctx.beginPath();
+		this.ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
+		this.ctx.fill();
+
+		this.ctx.save();
+		this.ctx.lineWidth = 1.25;
+		this.ctx.strokeStyle = this.palette.nodeHighlight;
+		this.ctx.globalAlpha = 0.8;
+		this.ctx.beginPath();
+		this.ctx.arc(node.x, node.y, node.radius + 1.8, 0, Math.PI * 2);
+		this.ctx.stroke();
+		this.ctx.restore();
+	}
+
+	renderCommitLabel(node) {
+		if (!node.commit?.hash) return;
+
+		const text = shortenHash(node.commit.hash);
+
+		this.ctx.save();
+		this.ctx.font = LABEL_FONT;
+		this.ctx.textBaseline = "middle";
+		this.ctx.textAlign = "center";
+
+		const metrics = this.ctx.measureText(text);
+		const textHeight = metrics.actualBoundingBoxAscent ?? 9;
+		const offset = textHeight / 2 + LABEL_PADDING;
+
+		this.ctx.lineWidth = 3;
+		this.ctx.lineJoin = "round";
+		this.ctx.strokeStyle = this.palette.labelHalo;
+		this.ctx.globalAlpha = 0.9;
+		this.ctx.strokeText(text, node.x, node.y - offset);
+
+		this.ctx.globalAlpha = 1;
+		this.ctx.fillStyle = this.palette.labelText;
+		this.ctx.fillText(text, node.x, node.y - offset);
+
+		this.ctx.restore();
+	}
+
+	renderBranchNode(node, highlightKey) {
+		const isHighlighted = highlightKey && node.branch === highlightKey;
+		const text = node.branch ?? "";
+
+		this.ctx.save();
+		this.ctx.font = LABEL_FONT;
+		this.ctx.textBaseline = "middle";
+		this.ctx.textAlign = "center";
+
+		const metrics = this.ctx.measureText(text);
+		const textHeight = metrics.actualBoundingBoxAscent ?? 9;
+		const width = metrics.width + BRANCH_NODE_PADDING_X * 2;
+		const height = textHeight + BRANCH_NODE_PADDING_Y * 2;
+
+		this.drawRoundedRect(
+			node.x - width / 2,
+			node.y - height / 2,
+			width,
+			height,
+			BRANCH_NODE_CORNER_RADIUS,
+		);
+
+		this.ctx.fillStyle = isHighlighted
+			? this.palette.nodeHighlight
+			: this.palette.branchNode;
+		this.ctx.fill();
+		this.ctx.lineWidth = isHighlighted ? 2 : 1.5;
+		this.ctx.strokeStyle = isHighlighted
+			? this.palette.nodeHighlightRing
+			: this.palette.branchNodeBorder;
+		this.ctx.stroke();
+
+		this.ctx.fillStyle = this.palette.branchLabelText;
+		this.ctx.fillText(text, node.x, node.y);
+		this.ctx.restore();
+	}
+
+	drawRoundedRect(x, y, width, height, radius) {
+		const r = Math.max(0, Math.min(radius, Math.min(width, height) / 2));
+		this.ctx.beginPath();
+		this.ctx.moveTo(x + r, y);
+		this.ctx.lineTo(x + width - r, y);
+		this.ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+		this.ctx.lineTo(x + width, y + height - r);
+		this.ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+		this.ctx.lineTo(x + r, y + height);
+		this.ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+		this.ctx.lineTo(x, y + r);
+		this.ctx.quadraticCurveTo(x, y, x + r, y);
+		this.ctx.closePath();
+	}
+}
+
 const summarizeHash = (value) => {
 	if (!value) {
 		return "";
@@ -128,22 +382,8 @@ export function createGraph(rootElement) {
 
 	canvas.style.cursor = "default";
 
-	const drawRoundedRect = (ctx, x, y, width, height, radius) => {
-		const r = Math.max(0, Math.min(radius, Math.min(width, height) / 2));
-		ctx.beginPath();
-		ctx.moveTo(x + r, y);
-		ctx.lineTo(x + width - r, y);
-		ctx.quadraticCurveTo(x + width, y, x + width, y + r);
-		ctx.lineTo(x + width, y + height - r);
-		ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
-		ctx.lineTo(x + r, y + height);
-		ctx.quadraticCurveTo(x, y + height, x, y + height - r);
-		ctx.lineTo(x, y + r);
-		ctx.quadraticCurveTo(x, y, x + r, y);
-		ctx.closePath();
-	};
-
 	const tooltipManager = new TooltipManager(canvas);
+    const renderer = new GraphRenderer(canvas, buildPalette(canvas));
 
 	const updateTooltipPosition = () => {
 		tooltipManager.updatePosition(zoomTransform);
@@ -508,7 +748,7 @@ export function createGraph(rootElement) {
 	const themeWatcher = window.matchMedia?.("(prefers-color-scheme: dark)");
 	if (themeWatcher) {
 		const handler = () => {
-			palette = buildPalette(canvas);
+            renderer.updatePallete(palette);
 			render();
 		};
 		if (themeWatcher.addEventListener) {
@@ -712,195 +952,16 @@ export function createGraph(rootElement) {
 		};
 	}
 
-	function render() {
-		const dpr = window.devicePixelRatio || 1;
-		context.save();
-		context.setTransform(dpr, 0, 0, dpr, 0, 0);
-		context.fillStyle = palette.background;
-		context.fillRect(0, 0, viewportWidth, viewportHeight);
-
-		context.translate(zoomTransform.x, zoomTransform.y);
-		context.scale(zoomTransform.k, zoomTransform.k);
-
-		context.lineWidth = LINK_THICKNESS;
-		for (const link of links) {
-			const source =
-				typeof link.source === "object"
-					? link.source
-					: nodes.find((node) => node.hash === link.source);
-			const target =
-				typeof link.target === "object"
-					? link.target
-					: nodes.find((node) => node.hash === link.target);
-			if (!source || !target) {
-				continue;
-			}
-
-			const startX = source.x;
-			const startY = source.y;
-			const endX = target.x;
-			const endY = target.y;
-
-			const dx = endX - startX;
-			const dy = endY - startY;
-			const distance = Math.sqrt(dx * dx + dy * dy);
-			if (distance === 0) {
-				continue;
-			}
-
-			const targetRadius =
-				target.type === "branch" ? BRANCH_NODE_RADIUS : NODE_RADIUS;
-			const arrowBaseRatio = Math.max(
-				(distance - targetRadius - ARROW_LENGTH) / distance,
-				0,
-			);
-			const arrowTipRatio = Math.max((distance - targetRadius) / distance, 0);
-
-			const shaftEndX = startX + dx * arrowBaseRatio;
-			const shaftEndY = startY + dy * arrowBaseRatio;
-			const arrowTipX = startX + dx * arrowTipRatio;
-			const arrowTipY = startY + dy * arrowTipRatio;
-
-			const angle = Math.atan2(dy, dx);
-
-			const linkColor =
-				link.kind === "branch" ? palette.branchLink : palette.link;
-			context.strokeStyle = linkColor;
-
-			context.beginPath();
-			context.moveTo(startX, startY);
-			context.lineTo(shaftEndX, shaftEndY);
-			context.stroke();
-
-			context.save();
-			context.translate(arrowTipX, arrowTipY);
-			context.rotate(angle);
-
-			context.beginPath();
-			context.moveTo(0, 0);
-			context.lineTo(-ARROW_LENGTH, ARROW_WIDTH / 2);
-			context.lineTo(-ARROW_LENGTH, -ARROW_WIDTH / 2);
-			context.closePath();
-			context.fillStyle = linkColor;
-			context.fill();
-			context.restore();
-		}
-
-		for (const node of nodes) {
-			const isHighlighted = tooltipManager.isHighlighted(node);
-			const currentRadius = node.radius ?? NODE_RADIUS;
-			const targetRadius = isHighlighted ? HIGHLIGHT_NODE_RADIUS : NODE_RADIUS;
-			const nodeRadius = currentRadius + (targetRadius - currentRadius) * 0.25;
-			node.radius = nodeRadius;
-
-			if (isHighlighted) {
-				context.save();
-				context.fillStyle = palette.nodeHighlightGlow;
-				context.beginPath();
-				context.arc(node.x, node.y, nodeRadius + 7, 0, Math.PI * 2);
-				context.globalAlpha = 0.35;
-				context.fill();
-				context.restore();
-
-				const gradient = context.createRadialGradient(
-					node.x,
-					node.y,
-					nodeRadius * 0.2,
-					node.x,
-					node.y,
-					nodeRadius,
-				);
-				gradient.addColorStop(0, palette.nodeHighlightCore);
-				gradient.addColorStop(0.7, palette.nodeHighlight);
-				gradient.addColorStop(1, palette.nodeHighlightRing);
-				context.fillStyle = gradient;
-			} else {
-				context.fillStyle = palette.node;
-			}
-
-			context.beginPath();
-			context.arc(node.x, node.y, nodeRadius, 0, Math.PI * 2);
-			context.fill();
-
-			if (isHighlighted) {
-				context.save();
-				context.lineWidth = 1.25;
-				context.strokeStyle = palette.nodeHighlight;
-				context.globalAlpha = 0.8;
-				context.beginPath();
-				context.arc(node.x, node.y, nodeRadius + 1.8, 0, Math.PI * 2);
-				context.stroke();
-				context.restore();
-			}
-
-			if (node.commit?.hash) {
-				context.save();
-
-				const text = shortenHash(node.commit.hash);
-
-				context.font = LABEL_FONT;
-				context.textBaseline = "middle";
-				context.textAlign = "center";
-
-				const textMetrics = context.measureText(text);
-				const textHeight = textMetrics.actualBoundingBoxAscent ?? 9;
-				const baselineOffset = textHeight / 2 + LABEL_PADDING;
-
-				context.lineWidth = 3;
-				context.lineJoin = "round";
-				context.strokeStyle = palette.labelHalo;
-				context.globalAlpha = 0.9;
-				context.strokeText(text, node.x, node.y - baselineOffset);
-
-				context.globalAlpha = 1;
-				context.fillStyle = palette.labelText;
-				context.fillText(text, node.x, node.y - baselineOffset);
-
-				context.restore();
-			}
-		}
-
-		for (const node of nodes) {
-			if (node.type !== "branch") {
-				continue;
-			}
-
-			const text = node.branch ?? "";
-
-			context.save();
-			context.font = LABEL_FONT;
-			context.textBaseline = "middle";
-			context.textAlign = "center";
-
-			const textMetrics = context.measureText(text);
-			const textHeight = textMetrics.actualBoundingBoxAscent ?? 9;
-			const width = textMetrics.width + BRANCH_NODE_PADDING_X * 2;
-			const height = textHeight + BRANCH_NODE_PADDING_Y * 2;
-			const rectX = node.x - width / 2;
-			const rectY = node.y - height / 2;
-
-			drawRoundedRect(
-				context,
-				rectX,
-				rectY,
-				width,
-				height,
-				BRANCH_NODE_CORNER_RADIUS,
-			);
-			context.fillStyle = palette.branchNode;
-			context.fill();
-			context.lineWidth = 1.5;
-			context.strokeStyle = palette.branchNodeBorder;
-			context.stroke();
-
-			context.fillStyle = palette.branchLabelText;
-			context.fillText(text, node.x, node.y);
-			context.restore();
-		}
-
-		context.restore();
-		updateTooltipPosition();
-	}
+    function render() {
+        renderer.render({
+            nodes,
+            links,
+            zoomTransform,
+            viewportWidth,
+            viewportHeight,
+            tooltipManager,
+        })
+    }
 
 	function tick() {
 		if (layoutMode === "timeline" && autoCenterTimeline) {
