@@ -30,7 +30,7 @@ import { createGraphState, setZoomTransform } from "./state/graphState.js";
  */
 export function createGraphController(rootElement) {
 	const canvas = document.createElement("canvas");
-	canvas.getContext("2d", { alpha: false });
+	const context = canvas.getContext("2d", { alpha: false });
 	canvas.factor = window.devicePixelRatio || 1;
 	rootElement.appendChild(canvas);
 
@@ -47,16 +47,16 @@ export function createGraphController(rootElement) {
 
 	const simulation = d3
 		.forceSimulation(nodes)
-		.force("charge", d3.forceManyBody().strength(CHARGE_STRENGTH))
+		.force("charge", d3.forceManyBody().strength(-110))
 		.force("center", d3.forceCenter(0, 0))
-		.force("collision", d3.forceCollide().radius(COLLISION_RADIUS))
+		.force("collision", d3.forceCollide().radius(14))
 		.force(
 			"link",
 			d3
 				.forceLink(links)
 				.id((d) => d.hash)
-				.distance(LINK_DISTANCE)
-				.strength(LINK_STRENGTH),
+				.distance(50)
+				.strength(0.4),
 		)
 		.on("tick", tick);
 
@@ -80,39 +80,18 @@ export function createGraphController(rootElement) {
 	const tooltipManager = new TooltipManager(canvas);
 	const renderer = new GraphRenderer(canvas, buildPalette(canvas));
 
-	/**
-	 * Synchronizes tooltip DOM position with the current zoom transform.
-	 *
-	 * @returns {void}
-	 */
 	const updateTooltipPosition = () => {
 		tooltipManager.updatePosition(zoomTransform);
 	};
-	/**
-	 * Hides any active tooltip and triggers a render for visual parity.
-	 *
-	 * @returns {void}
-	 */
 	const hideTooltip = () => {
 		tooltipManager.hideAll();
 		render();
 	};
-	/**
-	 * Shows a tooltip for the supplied node and re-renders the scene.
-	 *
-	 * @param {import("./types.js").GraphNode} node Node that should be highlighted.
-	 * @returns {void}
-	 */
 	const showTooltip = (node) => {
 		tooltipManager.show(node, zoomTransform);
 		render();
 	};
-	/**
-	 * Converts pointer coordinates from screen space into graph space.
-	 *
-	 * @param {PointerEvent} event Pointer event emitted by the canvas.
-	 * @returns {{x: number, y: number}} Graph-space coordinates.
-	 */
+
 	const toGraphCoordinates = (event) => {
 		const rect = canvas.getBoundingClientRect();
 		const point = [event.clientX - rect.left, event.clientY - rect.top];
@@ -123,14 +102,6 @@ export function createGraphController(rootElement) {
 	const PICK_RADIUS_COMMIT = NODE_RADIUS + 4;
 	const PICK_RADIUS_BRANCH = BRANCH_NODE_RADIUS + 6;
 
-	/**
-	 * Finds the closest node to the supplied coordinates within a pick radius.
-	 *
-	 * @param {number} x Graph-space X coordinate.
-	 * @param {number} y Graph-space Y coordinate.
-	 * @param {"commit" | "branch"} [type] Optional node type filter.
-	 * @returns {import("./types.js").GraphNode | null} Matching node or null.
-	 */
 	const findNodeAt = (x, y, type) => {
 		let bestNode = null;
 		let bestDist = Infinity;
@@ -153,11 +124,6 @@ export function createGraphController(rootElement) {
 		return bestNode;
 	};
 
-	/**
-	 * Centers the viewport on the rightmost commit to keep recent activity visible.
-	 *
-	 * @returns {void}
-	 */
 	const centerTimelineOnRightmost = () => {
 		const rightmost = layoutManager.findRightmostCommit(nodes);
 		if (rightmost) {
@@ -166,12 +132,6 @@ export function createGraphController(rootElement) {
 		}
 	};
 
-	/**
-	 * Switches layout mode and reapplies necessary positioning.
-	 *
-	 * @param {"force" | "timeline"} mode Desired layout mode.
-	 * @returns {void}
-	 */
 	const setLayoutMode = (mode) => {
 		const changed = layoutManager.setMode(mode);
 		if (!changed) return;
@@ -185,11 +145,6 @@ export function createGraphController(rootElement) {
 		}
 	};
 
-	/**
-	 * Releases any active drag interaction and resets node forces.
-	 *
-	 * @returns {void}
-	 */
 	const releaseDrag = () => {
 		if (!dragState) {
 			return;
@@ -214,12 +169,6 @@ export function createGraphController(rootElement) {
 		simulation.alphaTarget(0);
 	};
 
-	/**
-	 * Handles pointer down events to support node selection and dragging.
-	 *
-	 * @param {PointerEvent} event Pointer down event.
-	 * @returns {void}
-	 */
 	const handlePointerDown = (event) => {
 		if (event.button !== 0) {
 			return;
@@ -264,12 +213,6 @@ export function createGraphController(rootElement) {
 		}
 	};
 
-	/**
-	 * Handles pointer move events to reposition dragged nodes.
-	 *
-	 * @param {PointerEvent} event Pointer move event.
-	 * @returns {void}
-	 */
 	const handlePointerMove = (event) => {
 		if (dragState && event.pointerId === dragState.pointerId) {
 			event.preventDefault();
@@ -297,12 +240,6 @@ export function createGraphController(rootElement) {
 		}
 	};
 
-	/**
-	 * Handles pointer up events to finalize drag interactions.
-	 *
-	 * @param {PointerEvent} event Pointer up event.
-	 * @returns {void}
-	 */
 	const handlePointerUp = (event) => {
 		if (dragState && event.pointerId === dragState.pointerId) {
 			releaseDrag();
@@ -314,11 +251,6 @@ export function createGraphController(rootElement) {
 
 	d3.select(canvas).call(zoom).on("dblclick.zoom", null);
 
-	/**
-	 * Resizes the canvas to match its container and updates the layout manager.
-	 *
-	 * @returns {void}
-	 */
 	const resize = () => {
 		const parent = canvas.parentElement;
 		const cssWidth =
@@ -378,11 +310,6 @@ export function createGraphController(rootElement) {
 
 	setLayoutMode("timeline");
 
-	/**
-	 * Rebuilds node and link collections based on current commit and branch maps.
-	 *
-	 * @returns {void}
-	 */
 	function updateGraph() {
 		const existingCommitNodes = new Map();
 		const existingBranchNodes = new Map();
@@ -394,49 +321,20 @@ export function createGraphController(rootElement) {
 			}
 		}
 
-		const resolveLinkKey = (endpoint) => {
-			if (typeof endpoint === "string") {
-				return endpoint;
-			}
-			if (endpoint?.type === "branch") {
-				return `branch:${endpoint.branch}`;
-			}
-			if (endpoint?.type === "commit") {
-				return endpoint.hash;
-			}
-			return "";
-		};
-		const toLinkKey = (source, target) =>
-			`${resolveLinkKey(source)}->${resolveLinkKey(target)}`;
-
-		const existingLinkWarmup = new Map();
-		for (const link of links) {
-			const key = toLinkKey(link.source, link.target);
-			if (key) {
-				existingLinkWarmup.set(key, link.warmup ?? 1);
-			}
-		}
-
 		const nextCommitNodes = [];
 		let commitStructureChanged = existingCommitNodes.size !== commits.size;
 		for (const commit of commits.values()) {
-			const parentNodes = (commit.parents ?? [])
+			const parentNode = (commit.parents ?? [])
 				.map((parentHash) => existingCommitNodes.get(parentHash))
-				.filter(Boolean);
-			const anchorNode = parentNodes[0];
-			const isExisting = existingCommitNodes.has(commit.hash);
+				.find((node) => node);
 			const node =
-				existingCommitNodes.get(commit.hash) ??
-				createCommitNode(commit.hash, anchorNode, parentNodes);
+				existingCommitNodes.get(commit.hash) ?? createCommitNode(commit.hash, parentNode);
 			node.type = "commit";
 			node.hash = commit.hash;
 			node.commit = commit;
 			node.radius = node.radius ?? NODE_RADIUS;
-			if (!isExisting) {
-				node.spawnPhase = 0;
-			}
 			nextCommitNodes.push(node);
-			if (!isExisting) {
+			if (!existingCommitNodes.has(commit.hash)) {
 				commitStructureChanged = true;
 			}
 		}
@@ -452,14 +350,9 @@ export function createGraphController(rootElement) {
 				if (!commitHashes.has(parentHash)) {
 					continue;
 				}
-				const key = toLinkKey(commit.hash, parentHash);
-				const warmup = existingLinkWarmup.has(key)
-					? existingLinkWarmup.get(key)
-					: 0;
 				nextLinks.push({
 					source: commit.hash,
 					target: parentHash,
-					warmup,
 				});
 			}
 		}
@@ -468,6 +361,7 @@ export function createGraphController(rootElement) {
 			nextCommitNodes.map((node) => [node.hash, node]),
 		);
 		const nextBranchNodes = [];
+		const pendingBranchAlignments = [];
 		let branchStructureChanged = existingBranchNodes.size !== branches.size;
 		for (const [branchName, targetHash] of branches.entries()) {
 			const targetNode = commitNodeByHash.get(targetHash);
@@ -481,35 +375,25 @@ export function createGraphController(rootElement) {
 				branchNode = createBranchNode(branchName, targetNode);
 			}
 
-			if (branchNode.targetHash !== targetHash) {
-				branchNode.x = targetNode.x + (Math.random() - 0.5) * 6;
-				branchNode.y =
-					targetNode.y - BRANCH_NODE_OFFSET_Y + (Math.random() - 0.5) * 6;
-				branchNode.vx = 0;
-				branchNode.vy = 0;
-				branchStructureChanged = true;
-			}
-
+			const previousHash = branchNode.targetHash;
 			branchNode.type = "branch";
 			branchNode.branch = branchName;
 			branchNode.targetHash = targetHash;
 			if (isNewNode) {
 				branchNode.spawnPhase = 0;
 				branchStructureChanged = true;
+			} else if (previousHash !== targetHash) {
+				branchStructureChanged = true;
 			}
 
 			nextBranchNodes.push(branchNode);
-
-			const branchLinkKey = toLinkKey(branchNode, targetNode);
-			const branchWarmup = existingLinkWarmup.has(branchLinkKey)
-				? existingLinkWarmup.get(branchLinkKey)
-				: 0;
 			nextLinks.push({
 				source: branchNode,
 				target: targetNode,
 				kind: "branch",
-				warmup: branchWarmup,
 			});
+
+			pendingBranchAlignments.push({ branchNode, targetNode });
 		}
 
 		nodes.splice(0, nodes.length, ...nextCommitNodes, ...nextBranchNodes);
@@ -534,104 +418,94 @@ export function createGraphController(rootElement) {
 		if (layoutManager.getMode() === "timeline") {
 			layoutManager.applyTimelineLayout(nodes);
 			centerTimelineOnRightmost();
+			snapBranchesToTargets(pendingBranchAlignments);
+		} else {
+			snapBranchesToTargets(pendingBranchAlignments);
 		}
 
 		layoutManager.boostSimulation(structureChanged);
 	}
 
-	/**
-	 * Creates a commit node seeded near an anchor node or random position.
-	 *
-	 * @param {string} hash Commit hash identifier.
-	 * @param {import("./types.js").GraphNodeCommit | undefined} anchorNode Optional nearby node.
-	 * @param {import("./types.js").GraphNodeCommit[]} parentNodes Parent nodes used for centroid seeding.
-	 * @returns {import("./types.js").GraphNodeCommit} New commit node structure.
-	 * @returns {import("./types.js").GraphNodeCommit}
-	 */
-	function createCommitNode(hash, anchorNode, parentNodes = []) {
+	function createCommitNode(hash, anchorNode) {
 		const centerX = (viewportWidth || canvas.width) / 2;
 		const centerY = (viewportHeight || canvas.height) / 2;
-		const jitter = (range) => (Math.random() - 0.5) * range;
-
-		if (parentNodes.length > 0) {
-			const centroid = parentNodes.reduce(
-				(acc, node) => {
-					acc.x += node.x ?? 0;
-					acc.y += node.y ?? 0;
-					return acc;
-				},
-				{ x: 0, y: 0 },
-			);
-			const count = parentNodes.length;
-			const avgX = centroid.x / count;
-			const avgY = centroid.y / count;
-
-			return {
-				type: "commit",
-				hash,
-				x: avgX + LINK_DISTANCE + jitter(4),
-				y: avgY + jitter(4),
-				vx: 0,
-				vy: 0,
-			};
-		}
-
-		if (anchorNode) {
-			return {
-				type: "commit",
-				hash,
-				x: (anchorNode.x ?? centerX) + LINK_DISTANCE + jitter(4),
-				y: (anchorNode.y ?? centerY) + jitter(4),
-				vx: 0,
-				vy: 0,
-			};
-		}
-
 		const maxRadius =
 			Math.min(viewportWidth || canvas.width, viewportHeight || canvas.height) *
-			0.12;
+			0.18;
 		const radius = Math.random() * maxRadius;
 		const angle = Math.random() * Math.PI * 2;
+		const jitter = () => (Math.random() - 0.5) * 35;
+
+		if (anchorNode) {
+			const offsetJitter = () => (Math.random() - 0.5) * 6;
+			return {
+				type: "commit",
+				hash,
+				x: anchorNode.x + offsetJitter(),
+				y: anchorNode.y + offsetJitter(),
+				vx: 0,
+				vy: 0,
+			};
+		}
 
 		return {
 			type: "commit",
 			hash,
-			x: centerX + Math.cos(angle) * radius + jitter(6),
-			y: centerY + Math.sin(angle) * radius + jitter(6),
+			x: centerX + Math.cos(angle) * radius + jitter(),
+			y: centerY + Math.sin(angle) * radius + jitter(),
 			vx: 0,
 			vy: 0,
 		};
 	}
 
-	/**
-	 * Creates a branch node positioned relative to its target commit.
-	 *
-	 * @param {string} branchName Branch identifier.
-	 * @param {import("./types.js").GraphNodeCommit | undefined} targetNode Target commit node.
-	 * @returns {import("./types.js").GraphNodeBranch} New branch node structure.
-	 * @returns {import("./types.js").GraphNodeBranch}
-	 */
+	function snapBranchesToTargets(pairs) {
+		for (const pair of pairs) {
+			if (!pair) continue;
+			const { branchNode, targetNode } = pair;
+			if (!branchNode || !targetNode) {
+				continue;
+			}
+
+			const baseX = targetNode.x ?? 0;
+			const baseY = targetNode.y ?? 0;
+			const jitter = (range) => (Math.random() - 0.5) * range;
+
+			branchNode.x = baseX + jitter(2);
+			branchNode.y = baseY - BRANCH_NODE_OFFSET_Y + jitter(2);
+			branchNode.vx = 0;
+			branchNode.vy = 0;
+		}
+	}
+
 	function createBranchNode(branchName, targetNode) {
-		const baseX = targetNode?.x ?? (viewportWidth || canvas.width) / 2;
-		const baseY = targetNode?.y ?? (viewportHeight || canvas.height) / 2;
-		const jitter = (range) => (Math.random() - 0.5) * range;
+		if (targetNode) {
+			const jitter = (range) => (Math.random() - 0.5) * range;
+			return {
+				type: "branch",
+				branch: branchName,
+				targetHash: targetNode.hash ?? null,
+				x: (targetNode.x ?? 0) + jitter(4),
+				y: (targetNode.y ?? 0) - BRANCH_NODE_OFFSET_Y + jitter(4),
+				vx: 0,
+				vy: 0,
+			};
+		}
+
+		const baseX = (viewportWidth || canvas.width) / 2;
+		const baseY = (viewportHeight || canvas.height) / 2;
+		const jitterFallback = (range) => (Math.random() - 0.5) * range;
 
 		return {
 			type: "branch",
 			branch: branchName,
-			targetHash: targetNode?.hash ?? null,
-			x: baseX + jitter(6),
-			y: baseY - BRANCH_NODE_OFFSET_Y + jitter(6),
+			targetHash: null,
+			x: baseX + jitterFallback(6),
+			y: baseY - BRANCH_NODE_OFFSET_Y + jitterFallback(6),
 			vx: 0,
 			vy: 0,
 		};
 	}
 
-	/**
-	 * Renders the graph scene and updates tooltip positioning.
-	 *
-	 * @returns {void}
-	 */
 	function render() {
 		renderer.render({
 			nodes,
@@ -641,14 +515,8 @@ export function createGraphController(rootElement) {
 			viewportHeight,
 			tooltipManager,
 		});
-		updateTooltipPosition();
 	}
 
-	/**
-	 * Handles D3 simulation ticks by recentring timelines and rendering.
-	 *
-	 * @returns {void}
-	 */
 	function tick() {
 		if (layoutManager.shouldAutoCenter()) {
 			centerTimelineOnRightmost();
@@ -657,11 +525,6 @@ export function createGraphController(rootElement) {
 		render();
 	}
 
-	/**
-	 * Tears down event listeners, simulation, and tooltips.
-	 *
-	 * @returns {void}
-	 */
 	function destroy() {
 		window.removeEventListener("resize", resize);
 		d3.select(canvas).on(".zoom", null);
@@ -675,11 +538,6 @@ export function createGraphController(rootElement) {
 		tooltipManager.destroy();
 	}
 
-	/**
-	 * Applies backend delta payloads to the graph state and re-renders.
-	 *
-	 * @param {any} delta Delta payload received from the backend stream.
-	 */
 	function applyDelta(delta) {
 		if (!delta) {
 			return;
