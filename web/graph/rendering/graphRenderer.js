@@ -107,7 +107,20 @@ export class GraphRenderer {
             const target = this.resolveNode(link.target, nodes);
             if (!source || !target) continue;
 
+            const warmup =
+                typeof link.warmup === "number"
+                    ? Math.max(0, Math.min(1, link.warmup))
+                    : 1;
+            const nextWarmup = warmup < 1 ? Math.min(1, warmup + 0.12) : 1;
+            link.warmup = nextWarmup;
+            if (warmup <= 0) {
+                continue;
+            }
+
+            const prevAlpha = this.ctx.globalAlpha;
+            this.ctx.globalAlpha = prevAlpha * warmup;
             this.renderLink(source, target, link.kind === "branch");
+            this.ctx.globalAlpha = prevAlpha;
         }
     }
 
@@ -218,13 +231,30 @@ export class GraphRenderer {
         const targetRadius = isHighlighted ? HIGHLIGHT_NODE_RADIUS : NODE_RADIUS;
         node.radius = currentRadius + (targetRadius - currentRadius) * 0.25;
 
-        if (isHighlighted) {
-            this.renderHighlightedCommit(node);
+        const spawnProgress =
+            typeof node.spawnPhase === "number" ? node.spawnPhase : 1;
+        const easedSpawn = spawnProgress * spawnProgress * (3 - 2 * spawnProgress);
+        const nextSpawn = spawnProgress < 1 ? Math.min(1, spawnProgress + 0.12) : 1;
+        if (nextSpawn >= 1) {
+            delete node.spawnPhase;
         } else {
-            this.renderNormalCommit(node);
+            node.spawnPhase = nextSpawn;
         }
 
-        this.renderCommitLabel(node);
+        const spawnAlpha = Math.max(0, Math.min(1, easedSpawn));
+        const radiusScale = 0.55 + 0.45 * spawnAlpha;
+        const drawRadius = node.radius * radiusScale;
+
+        const previousAlpha = this.ctx.globalAlpha;
+        this.ctx.globalAlpha = previousAlpha * (spawnAlpha || 0.01);
+        if (isHighlighted) {
+            this.renderHighlightedCommit(node, drawRadius);
+        } else {
+            this.renderNormalCommit(node, drawRadius);
+        }
+        this.ctx.globalAlpha = previousAlpha;
+
+        this.renderCommitLabel(node, spawnAlpha);
     }
 
     /**
@@ -232,10 +262,10 @@ export class GraphRenderer {
      *
      * @param {import("../types.js").GraphNodeCommit} node Commit node to paint.
      */
-    renderNormalCommit(node) {
+    renderNormalCommit(node, radius) {
         this.ctx.fillStyle = this.palette.node;
         this.ctx.beginPath();
-        this.ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
+        this.ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
         this.ctx.fill();
     }
 
@@ -244,22 +274,22 @@ export class GraphRenderer {
      *
      * @param {import("../types.js").GraphNodeCommit} node Commit node to paint.
      */
-    renderHighlightedCommit(node) {
+    renderHighlightedCommit(node, radius) {
         this.ctx.save();
         this.ctx.fillStyle = this.palette.nodeHighlightGlow;
         this.ctx.globalAlpha = 0.35;
         this.ctx.beginPath();
-        this.ctx.arc(node.x, node.y, node.radius + 7, 0, Math.PI * 2);
+        this.ctx.arc(node.x, node.y, radius + 7, 0, Math.PI * 2);
         this.ctx.fill();
         this.ctx.restore();
 
         const gradient = this.ctx.createRadialGradient(
             node.x,
             node.y,
-            node.radius * 0.2,
+            radius * 0.2,
             node.x,
             node.y,
-            node.radius,
+            radius,
         );
         gradient.addColorStop(0, this.palette.nodeHighlightCore);
         gradient.addColorStop(0.7, this.palette.nodeHighlight);
@@ -267,7 +297,7 @@ export class GraphRenderer {
 
         this.ctx.fillStyle = gradient;
         this.ctx.beginPath();
-        this.ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
+        this.ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
         this.ctx.fill();
 
         this.ctx.save();
@@ -275,7 +305,7 @@ export class GraphRenderer {
         this.ctx.strokeStyle = this.palette.nodeHighlight;
         this.ctx.globalAlpha = 0.8;
         this.ctx.beginPath();
-        this.ctx.arc(node.x, node.y, node.radius + 1.8, 0, Math.PI * 2);
+        this.ctx.arc(node.x, node.y, radius + 1.8, 0, Math.PI * 2);
         this.ctx.stroke();
         this.ctx.restore();
     }
@@ -285,7 +315,7 @@ export class GraphRenderer {
      *
      * @param {import("../types.js").GraphNodeCommit} node Commit node to annotate.
      */
-    renderCommitLabel(node) {
+    renderCommitLabel(node, spawnAlpha = 1) {
         if (!node.commit?.hash) return;
 
         const text = shortenHash(node.commit.hash);
@@ -302,10 +332,10 @@ export class GraphRenderer {
         this.ctx.lineWidth = 3;
         this.ctx.lineJoin = "round";
         this.ctx.strokeStyle = this.palette.labelHalo;
-        this.ctx.globalAlpha = 0.9;
+        this.ctx.globalAlpha = 0.9 * spawnAlpha;
         this.ctx.strokeText(text, node.x, node.y - offset);
 
-        this.ctx.globalAlpha = 1;
+        this.ctx.globalAlpha = spawnAlpha;
         this.ctx.fillStyle = this.palette.labelText;
         this.ctx.fillText(text, node.x, node.y - offset);
 
@@ -322,7 +352,24 @@ export class GraphRenderer {
         const isHighlighted = highlightKey && node.branch === highlightKey;
         const text = node.branch ?? "";
 
+        const spawnProgress =
+            typeof node.spawnPhase === "number" ? node.spawnPhase : 1;
+        const easedSpawn = spawnProgress * spawnProgress * (3 - 2 * spawnProgress);
+        const nextSpawn = spawnProgress < 1 ? Math.min(1, spawnProgress + 0.12) : 1;
+        if (nextSpawn >= 1) {
+            delete node.spawnPhase;
+        } else {
+            node.spawnPhase = nextSpawn;
+        }
+        const spawnAlpha = Math.max(0, Math.min(1, easedSpawn));
+        const scale = 0.7 + 0.3 * spawnAlpha;
+
         this.ctx.save();
+        const previousAlpha = this.ctx.globalAlpha;
+        this.ctx.globalAlpha = previousAlpha * (spawnAlpha || 0.01);
+        this.ctx.translate(node.x, node.y);
+        this.ctx.scale(scale, scale);
+        this.ctx.translate(-node.x, -node.y);
         this.ctx.font = LABEL_FONT;
         this.ctx.textBaseline = "middle";
         this.ctx.textAlign = "center";
@@ -344,7 +391,8 @@ export class GraphRenderer {
             ? this.palette.nodeHighlight
             : this.palette.branchNode;
         this.ctx.fill();
-        this.ctx.lineWidth = isHighlighted ? 2 : 1.5;
+        const baseLineWidth = isHighlighted ? 2 : 1.5;
+        this.ctx.lineWidth = baseLineWidth / scale;
         this.ctx.strokeStyle = isHighlighted
             ? this.palette.nodeHighlightRing
             : this.palette.branchNodeBorder;
@@ -352,6 +400,7 @@ export class GraphRenderer {
 
         this.ctx.fillStyle = this.palette.branchLabelText;
         this.ctx.fillText(text, node.x, node.y);
+        this.ctx.globalAlpha = previousAlpha;
         this.ctx.restore();
     }
 

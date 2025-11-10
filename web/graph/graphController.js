@@ -394,20 +394,49 @@ export function createGraphController(rootElement) {
 			}
 		}
 
+		const resolveLinkKey = (endpoint) => {
+			if (typeof endpoint === "string") {
+				return endpoint;
+			}
+			if (endpoint?.type === "branch") {
+				return `branch:${endpoint.branch}`;
+			}
+			if (endpoint?.type === "commit") {
+				return endpoint.hash;
+			}
+			return "";
+		};
+		const toLinkKey = (source, target) =>
+			`${resolveLinkKey(source)}->${resolveLinkKey(target)}`;
+
+		const existingLinkWarmup = new Map();
+		for (const link of links) {
+			const key = toLinkKey(link.source, link.target);
+			if (key) {
+				existingLinkWarmup.set(key, link.warmup ?? 1);
+			}
+		}
+
 		const nextCommitNodes = [];
 		let commitStructureChanged = existingCommitNodes.size !== commits.size;
 		for (const commit of commits.values()) {
-			const parentNode = (commit.parents ?? [])
+			const parentNodes = (commit.parents ?? [])
 				.map((parentHash) => existingCommitNodes.get(parentHash))
-				.find((node) => node);
+				.filter(Boolean);
+			const anchorNode = parentNodes[0];
+			const isExisting = existingCommitNodes.has(commit.hash);
 			const node =
-				existingCommitNodes.get(commit.hash) ?? createCommitNode(commit.hash, parentNode);
+				existingCommitNodes.get(commit.hash) ??
+				createCommitNode(commit.hash, anchorNode, parentNodes);
 			node.type = "commit";
 			node.hash = commit.hash;
 			node.commit = commit;
 			node.radius = node.radius ?? NODE_RADIUS;
+			if (!isExisting) {
+				node.spawnPhase = 0;
+			}
 			nextCommitNodes.push(node);
-			if (!existingCommitNodes.has(commit.hash)) {
+			if (!isExisting) {
 				commitStructureChanged = true;
 			}
 		}
@@ -423,9 +452,14 @@ export function createGraphController(rootElement) {
 				if (!commitHashes.has(parentHash)) {
 					continue;
 				}
+				const key = toLinkKey(commit.hash, parentHash);
+				const warmup = existingLinkWarmup.has(key)
+					? existingLinkWarmup.get(key)
+					: 0;
 				nextLinks.push({
 					source: commit.hash,
 					target: parentHash,
+					warmup,
 				});
 			}
 		}
@@ -448,20 +482,9 @@ export function createGraphController(rootElement) {
 			}
 
 			if (branchNode.targetHash !== targetHash) {
-				branchNode.x = targetNode.x + (Math.random() - 0.5) * 12;
+				branchNode.x = targetNode.x + (Math.random() - 0.5) * 6;
 				branchNode.y =
-					targetNode.y - BRANCH_NODE_OFFSET_Y + (Math.random() - 0.5) * 12;
-				branchNode.vx = 0;
-				branchNode.vy = 0;
-				branchStructureChanged = true;
-			}
-
-			if (isNewNode) {
-				branchNode.x = (targetNode.x ?? 0) + (Math.random() - 0.5) * 20;
-				branchNode.y =
-					(targetNode.y ?? 0) -
-					BRANCH_NODE_OFFSET_Y +
-					(Math.random() - 0.5) * 20;
+					targetNode.y - BRANCH_NODE_OFFSET_Y + (Math.random() - 0.5) * 6;
 				branchNode.vx = 0;
 				branchNode.vy = 0;
 				branchStructureChanged = true;
@@ -470,12 +493,22 @@ export function createGraphController(rootElement) {
 			branchNode.type = "branch";
 			branchNode.branch = branchName;
 			branchNode.targetHash = targetHash;
+			if (isNewNode) {
+				branchNode.spawnPhase = 0;
+				branchStructureChanged = true;
+			}
 
 			nextBranchNodes.push(branchNode);
+
+			const branchLinkKey = toLinkKey(branchNode, targetNode);
+			const branchWarmup = existingLinkWarmup.has(branchLinkKey)
+				? existingLinkWarmup.get(branchLinkKey)
+				: 0;
 			nextLinks.push({
 				source: branchNode,
 				target: targetNode,
 				kind: "branch",
+				warmup: branchWarmup,
 			});
 		}
 
@@ -511,36 +544,60 @@ export function createGraphController(rootElement) {
 	 *
 	 * @param {string} hash Commit hash identifier.
 	 * @param {import("./types.js").GraphNodeCommit | undefined} anchorNode Optional nearby node.
+	 * @param {import("./types.js").GraphNodeCommit[]} parentNodes Parent nodes used for centroid seeding.
 	 * @returns {import("./types.js").GraphNodeCommit} New commit node structure.
 	 * @returns {import("./types.js").GraphNodeCommit}
 	 */
-	function createCommitNode(hash, anchorNode) {
+	function createCommitNode(hash, anchorNode, parentNodes = []) {
 		const centerX = (viewportWidth || canvas.width) / 2;
 		const centerY = (viewportHeight || canvas.height) / 2;
-		const maxRadius =
-			Math.min(viewportWidth || canvas.width, viewportHeight || canvas.height) *
-			0.18;
-		const radius = Math.random() * maxRadius;
-		const angle = Math.random() * Math.PI * 2;
-		const jitter = () => (Math.random() - 0.5) * 35;
+		const jitter = (range) => (Math.random() - 0.5) * range;
 
-		if (anchorNode) {
-			const offsetJitter = () => (Math.random() - 0.5) * 6;
+		if (parentNodes.length > 0) {
+			const centroid = parentNodes.reduce(
+				(acc, node) => {
+					acc.x += node.x ?? 0;
+					acc.y += node.y ?? 0;
+					return acc;
+				},
+				{ x: 0, y: 0 },
+			);
+			const count = parentNodes.length;
+			const avgX = centroid.x / count;
+			const avgY = centroid.y / count;
+
 			return {
 				type: "commit",
 				hash,
-				x: anchorNode.x + offsetJitter(),
-				y: anchorNode.y + offsetJitter(),
+				x: avgX + LINK_DISTANCE + jitter(4),
+				y: avgY + jitter(4),
 				vx: 0,
 				vy: 0,
 			};
 		}
 
+		if (anchorNode) {
+			return {
+				type: "commit",
+				hash,
+				x: (anchorNode.x ?? centerX) + LINK_DISTANCE + jitter(4),
+				y: (anchorNode.y ?? centerY) + jitter(4),
+				vx: 0,
+				vy: 0,
+			};
+		}
+
+		const maxRadius =
+			Math.min(viewportWidth || canvas.width, viewportHeight || canvas.height) *
+			0.12;
+		const radius = Math.random() * maxRadius;
+		const angle = Math.random() * Math.PI * 2;
+
 		return {
 			type: "commit",
 			hash,
-			x: centerX + Math.cos(angle) * radius + jitter(),
-			y: centerY + Math.sin(angle) * radius + jitter(),
+			x: centerX + Math.cos(angle) * radius + jitter(6),
+			y: centerY + Math.sin(angle) * radius + jitter(6),
 			vx: 0,
 			vy: 0,
 		};
@@ -557,14 +614,14 @@ export function createGraphController(rootElement) {
 	function createBranchNode(branchName, targetNode) {
 		const baseX = targetNode?.x ?? (viewportWidth || canvas.width) / 2;
 		const baseY = targetNode?.y ?? (viewportHeight || canvas.height) / 2;
-		const jitter = () => (Math.random() - 0.5) * 20;
+		const jitter = (range) => (Math.random() - 0.5) * range;
 
 		return {
 			type: "branch",
 			branch: branchName,
 			targetHash: targetNode?.hash ?? null,
-			x: baseX + jitter(),
-			y: baseY - BRANCH_NODE_OFFSET_Y + jitter(),
+			x: baseX + jitter(6),
+			y: baseY - BRANCH_NODE_OFFSET_Y + jitter(6),
 			vx: 0,
 			vy: 0,
 		};
