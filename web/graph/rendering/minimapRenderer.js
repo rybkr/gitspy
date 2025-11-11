@@ -155,20 +155,28 @@ export class MinimapRenderer {
 		const width = this.canvas.width;
 		const height = this.canvas.height;
 
-		const { bounds, scale, centerX, centerY } = this.transform;
-		const worldWidth = bounds.maxX - bounds.minX || 1;
-		const worldHeight = bounds.maxY - bounds.minY || 1;
+		const { scale, centerX, centerY, bounds } = this.transform;
+		const zoom = viewport.zoom || 1;
 
-		const normalizedWidth = (viewport.width / (viewport.zoom || 1)) / worldWidth;
-		const normalizedHeight = (viewport.height / (viewport.zoom || 1)) / worldHeight;
+		const viewHalfWidth = viewport.width / (2 * zoom);
+		const viewHalfHeight = viewport.height / (2 * zoom);
 
-		const centerScreenX =
-			width / 2 - ((viewport.translateX / (viewport.zoom || 1)) * scale);
-		const centerScreenY =
-			height / 2 - ((viewport.translateY / (viewport.zoom || 1)) * scale);
-
-		const rectWidth = normalizedWidth * worldWidth * scale;
-		const rectHeight = normalizedHeight * worldHeight * scale;
+		const topLeft = this.worldToMinimap(
+			viewport.translateX * -1 / zoom - viewHalfWidth,
+			viewport.translateY * -1 / zoom - viewHalfHeight,
+		);
+		const topRight = this.worldToMinimap(
+			viewport.translateX * -1 / zoom + viewHalfWidth,
+			viewport.translateY * -1 / zoom - viewHalfHeight,
+		);
+		const bottomRight = this.worldToMinimap(
+			viewport.translateX * -1 / zoom + viewHalfWidth,
+			viewport.translateY * -1 / zoom + viewHalfHeight,
+		);
+		const bottomLeft = this.worldToMinimap(
+			viewport.translateX * -1 / zoom - viewHalfWidth,
+			viewport.translateY * -1 / zoom + viewHalfHeight,
+		);
 
 		ctx.save();
 		ctx.strokeStyle = this.palette.nodeHighlight;
@@ -176,12 +184,11 @@ export class MinimapRenderer {
 		ctx.fillStyle = "rgba(31, 111, 235, 0.12)";
 
 		ctx.beginPath();
-		ctx.rect(
-			centerScreenX - rectWidth / 2,
-			centerScreenY - rectHeight / 2,
-			rectWidth,
-			rectHeight,
-		);
+		ctx.moveTo(topLeft.x, topLeft.y);
+		ctx.lineTo(topRight.x, topRight.y);
+		ctx.lineTo(bottomRight.x, bottomRight.y);
+		ctx.lineTo(bottomLeft.x, bottomLeft.y);
+		ctx.closePath();
 		ctx.fill();
 		ctx.stroke();
 		ctx.restore();
@@ -201,6 +208,23 @@ export class MinimapRenderer {
 		const x = (screenX - width / 2) / (scale || 1) + centerX;
 		const y = (screenY - height / 2) / (scale || 1) + centerY;
 		return { x, y };
+	}
+
+	/**
+	 * Converts world coordinates to minimap canvas coordinates.
+	 *
+	 * @param {number} worldX World-space X.
+	 * @param {number} worldY World-space Y.
+	 * @returns {{x: number, y: number}} Canvas coordinates.
+	 */
+	worldToMinimap(worldX, worldY) {
+		const { scale, centerX, centerY } = this.transform;
+		const width = this.canvas.width;
+		const height = this.canvas.height;
+		return {
+			x: (worldX - centerX) * (scale || 1) + width / 2,
+			y: (worldY - centerY) * (scale || 1) + height / 2,
+		};
 	}
 }
 

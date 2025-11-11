@@ -91,6 +91,7 @@ export function createGraphController(rootElement) {
 			}
 			zoomTransform = event.transform;
 			setZoomTransform(state, zoomTransform);
+			updateViewportMetadata();
 			render();
 		});
 
@@ -280,8 +281,8 @@ export function createGraphController(rootElement) {
 		layoutManager.updateViewport(cssWidth, cssHeight);
 		state.viewport.width = cssWidth;
 		state.viewport.height = cssHeight;
-		updateViewportMetadata();
 		updateMinimapCanvasSize();
+		updateViewportMetadata();
 
 		layoutManager.restartSimulation(1.0);
 		render();
@@ -289,6 +290,12 @@ export function createGraphController(rootElement) {
 
 	window.addEventListener("resize", resize);
 	resize();
+
+	const minimapResizeObserver = new ResizeObserver(() => {
+		updateMinimapCanvasSize();
+		renderMinimap();
+	});
+	minimapResizeObserver.observe(minimapContainer);
 
 	const themeWatcher = window.matchMedia?.("(prefers-color-scheme: dark)");
 	if (themeWatcher) {
