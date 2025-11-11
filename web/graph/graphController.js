@@ -19,6 +19,7 @@ import {
 	ZOOM_MIN,
 } from "./constants.js";
 import { GraphRenderer } from "./rendering/graphRenderer.js";
+import { MinimapRenderer } from "./rendering/minimapRenderer.js";
 import { LayoutManager } from "./layout/layoutManager.js";
 import { buildPalette } from "./utils/palette.js";
 import { createGraphState, setZoomTransform } from "./state/graphState.js";
@@ -30,10 +31,26 @@ import { createGraphState, setZoomTransform } from "./state/graphState.js";
  * @returns {{ applyDelta(delta: unknown): void, destroy(): void }} Public graph API.
  */
 export function createGraphController(rootElement) {
+	const layout = document.createElement("div");
+	layout.className = "graph-layout";
+
+	const canvasContainer = document.createElement("div");
+	canvasContainer.className = "graph-canvas-container";
+
 	const canvas = document.createElement("canvas");
-	const context = canvas.getContext("2d", { alpha: false });
+	canvas.getContext("2d", { alpha: false });
 	canvas.factor = window.devicePixelRatio || 1;
-	rootElement.appendChild(canvas);
+	canvasContainer.appendChild(canvas);
+
+	const minimapContainer = document.createElement("div");
+	minimapContainer.className = "graph-minimap";
+	const minimapCanvas = document.createElement("canvas");
+	minimapCanvas.width = 1;
+	minimapCanvas.height = 1;
+	minimapContainer.appendChild(minimapCanvas);
+
+	layout.append(canvasContainer, minimapContainer);
+	rootElement.insertAdjacentElement("beforeend", layout);
 
 	const state = createGraphState();
 	const { commits, branches, nodes, links } = state;
@@ -80,7 +97,10 @@ export function createGraphController(rootElement) {
 	canvas.style.cursor = "default";
 
 	const tooltipManager = new TooltipManager(canvas);
-	const renderer = new GraphRenderer(canvas, buildPalette(canvas));
+	let palette = buildPalette(canvas);
+	const renderer = new GraphRenderer(canvas, palette);
+	const minimapRenderer = new MinimapRenderer(minimapCanvas, palette);
+	state.minimap.canvas = minimapCanvas;
 
 	const updateTooltipPosition = () => {
 		tooltipManager.updatePosition(zoomTransform);
@@ -237,7 +257,6 @@ export function createGraphController(rootElement) {
 		}
 	};
 
-	let palette = buildPalette(canvas);
 	let removeThemeWatcher = null;
 
 	d3.select(canvas).call(zoom).on("dblclick.zoom", null);
@@ -259,6 +278,11 @@ export function createGraphController(rootElement) {
 		canvas.style.height = `${cssHeight}px`;
 
 		layoutManager.updateViewport(cssWidth, cssHeight);
+		state.viewport.width = cssWidth;
+		state.viewport.height = cssHeight;
+		updateViewportMetadata();
+		updateMinimapCanvasSize();
+
 		layoutManager.restartSimulation(1.0);
 		render();
 	};
@@ -271,6 +295,7 @@ export function createGraphController(rootElement) {
 		const handler = () => {
 			palette = buildPalette(canvas);
 			renderer.updatePalette(palette);
+			minimapRenderer.updatePalette(palette);
 			render();
 		};
 		if (themeWatcher.addEventListener) {
@@ -507,6 +532,7 @@ export function createGraphController(rootElement) {
 			viewportHeight,
 			tooltipManager,
 		});
+		renderMinimap();
 	}
 
 	function tick() {
@@ -562,6 +588,124 @@ export function createGraphController(rootElement) {
 
 		updateGraph();
 	}
+
+	/**
+	 * Updates viewport metadata stored in state for minimap synchronization.
+	 */
+	function updateViewportMetadata() {
+		state.viewport.zoom = zoomTransform.k;
+		state.viewport.translateX = zoomTransform.x;
+		state.viewport.translateY = zoomTransform.y;
+	}
+
+	/**
+	 * Resizes minimap canvas to match container dimensions.
+	 */
+	function updateMinimapCanvasSize() {
+		const rect = minimapCanvas.parentElement?.getBoundingClientRect();
+		if (!rect) {
+			return;
+		}
+		const dpr = window.devicePixelRatio || 1;
+		minimapCanvas.width = Math.max(1, Math.round(rect.width * dpr));
+		minimapCanvas.height = Math.max(1, Math.round(rect.height * dpr));
+		minimapCanvas.style.width = `${rect.width}px`;
+		minimapCanvas.style.height = `${rect.height}px`;
+		state.minimap.canvasSize = { width: rect.width, height: rect.height };
+	}
+
+	/**
+	 * Renders the minimap by drawing current graph state.
+	 */
+	function renderMinimap() {
+		if (!state.minimap.canvas) {
+			return;
+		}
+		const bounds = computeContentBounds(nodes);
+		state.minimap.contentBounds = bounds;
+		minimapRenderer.render({
+			nodes,
+			links,
+			bounds,
+			viewport: state.viewport,
+			highlightKey: tooltipManager.getHighlightKey(),
+		});
+	}
+
+	/**
+	 * Computes world-coordinate bounds of nodes for minimap scaling.
+	 *
+	 * @param {import("./types.js").GraphNode[]} contentNodes Nodes to measure.
+	 * @returns {{minX: number, minY: number, maxX: number, maxY: number}} Bounds.
+	 */
+	function computeContentBounds(contentNodes) {
+		if (contentNodes.length === 0) {
+			return state.minimap.contentBounds;
+		}
+		let minX = Infinity;
+		let minY = Infinity;
+		let maxX = -Infinity;
+		let maxY = -Infinity;
+		for (const node of contentNodes) {
+			minX = Math.min(minX, node.x);
+			minY = Math.min(minY, node.y);
+			maxX = Math.max(maxX, node.x);
+			maxY = Math.max(maxY, node.y);
+		}
+		if (!Number.isFinite(minX) || !Number.isFinite(minY)) {
+			return state.minimap.contentBounds;
+		}
+		const padding = 60;
+		return {
+			minX: minX - padding,
+			minY: minY - padding,
+			maxX: maxX + padding,
+			maxY: maxY + padding,
+		};
+	}
+
+	/**
+	 * Handles pointer interactions on the minimap to recenter the main view.
+	 *
+	 * @param {PointerEvent | WheelEvent} event DOM event emitted on the minimap.
+	 */
+	function handleMinimapPointer(event) {
+		const rect = minimapCanvas.getBoundingClientRect();
+		const dpr = window.devicePixelRatio || 1;
+		const canvasX = (event.clientX - rect.left) * dpr;
+		const canvasY = (event.clientY - rect.top) * dpr;
+		const world = minimapRenderer.screenToWorld(canvasX, canvasY);
+		d3.select(canvas).call(zoom.translateTo, world.x, world.y);
+	}
+
+	minimapCanvas.addEventListener("pointerdown", (event) => {
+		minimapCanvas.setPointerCapture(event.pointerId);
+		handleMinimapPointer(event);
+	});
+
+	minimapCanvas.addEventListener("pointermove", (event) => {
+		if (minimapCanvas.hasPointerCapture(event.pointerId)) {
+			handleMinimapPointer(event);
+		}
+	});
+
+	minimapCanvas.addEventListener(
+		"wheel",
+		(event) => {
+			event.preventDefault();
+			const zoomDelta = event.deltaY < 0 ? 1.1 : 0.9;
+
+			const rect = minimapCanvas.getBoundingClientRect();
+			const dpr = window.devicePixelRatio || 1;
+			const canvasX = (event.clientX - rect.left) * dpr;
+			const canvasY = (event.clientY - rect.top) * dpr;
+			const world = minimapRenderer.screenToWorld(canvasX, canvasY);
+			const screenPoint = zoomTransform.apply([world.x, world.y]);
+
+			d3.select(canvas).call(zoom.scaleBy, zoomDelta, screenPoint);
+		},
+		{ passive: false },
+	);
 
 	return {
 		applyDelta,

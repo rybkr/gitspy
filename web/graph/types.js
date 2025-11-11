@@ -69,11 +69,29 @@
  */
 
 /**
+ * @typedef {Object} GraphViewport
+ * @property {number} width Width of the viewport in CSS pixels.
+ * @property {number} height Height of the viewport in CSS pixels.
+ * @property {number} zoom Zoom factor (k) from D3 transform.
+ * @property {number} translateX Current X translation.
+ * @property {number} translateY Current Y translation.
+ */
+
+/**
+ * @typedef {Object} MinimapState
+ * @property {HTMLCanvasElement | null} canvas Reference to minimap canvas element.
+ * @property {{width: number, height: number}} canvasSize Current canvas CSS dimensions.
+ * @property {{minX: number, minY: number, maxX: number, maxY: number}} contentBounds Bounding box (world coordinates) of graph content.
+ */
+
+/**
  * @typedef {Object} GraphState
  * @property {Map<string, GraphCommit>} commits Map of commit hash to commit data.
  * @property {Map<string, string>} branches Map of branch name to target hash.
  * @property {GraphNode[]} nodes Collection of nodes rendered on the canvas.
  * @property {Array<{source: string | GraphNode, target: string | GraphNode, kind?: string}>} links Force simulation link definitions.
+ * @property {GraphViewport} viewport Viewport metadata used for minimap synchronization.
+ * @property {MinimapState} minimap State for minimap rendering and bounds tracking.
  * @property {import("d3").ZoomTransform} zoomTransform Current D3 zoom transform.
  */
 
